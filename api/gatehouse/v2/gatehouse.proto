@@ -1,0 +1,8 @@
+syntax = "proto3";
+
+package gatehouse.v2;
+
+option go_package = "github.com/SShogun/GateHouse/gen/go/gatehouse/v2;gatehousev2";
+
+// New GateHouse contracts are designed in v2 after the repository module-path
+// migration. No application messages are defined until their API is designed.

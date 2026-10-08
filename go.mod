@@ -1,4 +1,4 @@
-module github.com/gatehouse/gatehouse
+module github.com/SShogun/GateHouse
 
 go 1.26.8
 

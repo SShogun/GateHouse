@@ -6,7 +6,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/gatehouse/gatehouse/internal/lifecycle"
+	"github.com/SShogun/GateHouse/internal/lifecycle"
 )
 
 const shutdownTimeout = 10 * time.Second
