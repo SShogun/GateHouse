@@ -8,5 +8,5 @@ import { fileDesc } from "@bufbuild/protobuf/codegenv2";
  * Describes the file gatehouse/v1/gatehouse.proto.
  */
 export const file_gatehouse_v1_gatehouse = /*@__PURE__*/
-  fileDesc("ChxnYXRlaG91c2UvdjEvZ2F0ZWhvdXNlLnByb3RvEgxnYXRlaG91c2UudjFCQFo+Z2l0aHViLmNvbS9nYXRlaG91c2UvZ2F0ZWhvdXNlL2dlbi9nby9nYXRlaG91c2UvdjE7Z2F0ZWhvdXNldjFiBnByb3RvMw");
+  fileDesc("ChxnYXRlaG91c2UvdjEvZ2F0ZWhvdXNlLnByb3RvEgxnYXRlaG91c2UudjFCPlo8Z2l0aHViLmNvbS9TU2hvZ3VuL0dhdGVIb3VzZS9nZW4vZ28vZ2F0ZWhvdXNlL3YxO2dhdGVob3VzZXYxYgZwcm90bzM");
 

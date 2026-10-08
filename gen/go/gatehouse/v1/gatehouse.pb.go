@@ -24,7 +24,7 @@ var File_gatehouse_v1_gatehouse_proto protoreflect.FileDescriptor
 
 const file_gatehouse_v1_gatehouse_proto_rawDesc = "" +
 	"\n" +
-	"\x1cgatehouse/v1/gatehouse.proto\x12\fgatehouse.v1B@Z>github.com/gatehouse/gatehouse/gen/go/gatehouse/v1;gatehousev1b\x06proto3"
+	"\x1cgatehouse/v1/gatehouse.proto\x12\fgatehouse.v1B>Z<github.com/SShogun/GateHouse/gen/go/gatehouse/v1;gatehousev1b\x06proto3"
 
 var file_gatehouse_v1_gatehouse_proto_goTypes = []any{}
 var file_gatehouse_v1_gatehouse_proto_depIdxs = []int32{

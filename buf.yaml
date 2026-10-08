@@ -10,3 +10,6 @@ lint:
 breaking:
   use:
     - FILE
+  ignore_only:
+    FILE_SAME_GO_PACKAGE:
+      - api/gatehouse/v1/gatehouse.proto

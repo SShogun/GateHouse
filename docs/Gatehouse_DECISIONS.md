@@ -373,3 +373,13 @@ Do not derive a subject-based limit key from unverified JWT claims.
 Production-shaped admin APIs require authenticated operator principals and role checks. Data-plane config streams use TLS and instance authentication/mTLS.
 
 An unauthenticated developer mode may bind loopback only and must be explicit. “Private network” is not an authentication mechanism.
+
+---
+
+## D044 — Canonical Go module path and Protobuf contract version
+
+The Go module path follows the canonical repository identity: `github.com/SShogun/GateHouse`.
+
+Since `gatehouse.v1` currently defines no application messages and the project is pre-release (M0), the `go_package` option in `gatehouse.v1` has been updated directly to match the new canonical repository path. 
+
+To satisfy Buf's strict `FILE` compatibility rules during this zero-consumer migration, a narrowly scoped `breaking.ignore_only` exception for `FILE_SAME_GO_PACKAGE` on `gatehouse.proto` is temporarily applied in `buf.yaml`. This exception must be removed immediately after merging, once the new main commit becomes the compatibility baseline.
