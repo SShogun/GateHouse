@@ -2,7 +2,7 @@ GO_VERSION := $(shell sed -n 's/^go //p' go.mod)
 GO_TOOLCHAIN ?= go$(GO_VERSION)
 GO = GOTOOLCHAIN=$(GO_TOOLCHAIN) go
 STATICCHECK_VERSION ?= v0.7.0
-GOVULNCHECK_VERSION ?= v1.1.4
+GOVULNCHECK_VERSION ?= v1.8.0
 BUF_BASE_BRANCH ?= main
 BUF_BASE_REF ?=
 GO_FILES = $(shell find . -type f -name '*.go' -not -path './.git/*' -not -path './.omx/*')
