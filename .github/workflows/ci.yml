@@ -21,6 +21,11 @@ jobs:
           PUSH_BEFORE: ${{ github.event.before || '' }}
         run: |
           if [ -n "$PULL_REQUEST_BASE" ]; then
+            if ! git show-ref --verify --quiet "refs/remotes/origin/$PULL_REQUEST_BASE"; then
+              echo "Fetched pull request base branch was not found: $PULL_REQUEST_BASE" >&2
+              exit 1
+            fi
+            git branch "$PULL_REQUEST_BASE" "origin/$PULL_REQUEST_BASE"
             echo "BUF_BASE_BRANCH=$PULL_REQUEST_BASE" >> "$GITHUB_ENV"
           elif [ -n "$PUSH_BEFORE" ] && [ "$PUSH_BEFORE" != "0000000000000000000000000000000000000000" ]; then
             echo "BUF_BASE_REF=$PUSH_BEFORE" >> "$GITHUB_ENV"
