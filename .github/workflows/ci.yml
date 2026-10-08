@@ -15,19 +15,29 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+      - name: Select protobuf compatibility baseline
+        env:
+          PULL_REQUEST_BASE: ${{ github.event.pull_request.base.ref || '' }}
+          PUSH_BEFORE: ${{ github.event.before || '' }}
+        run: |
+          if [ -n "$PULL_REQUEST_BASE" ]; then
+            echo "BUF_BASE_BRANCH=$PULL_REQUEST_BASE" >> "$GITHUB_ENV"
+          elif [ -n "$PUSH_BEFORE" ] && [ "$PUSH_BEFORE" != "0000000000000000000000000000000000000000" ]; then
+            echo "BUF_BASE_REF=$PUSH_BEFORE" >> "$GITHUB_ENV"
+          else
+            echo "No protobuf compatibility baseline is available for this event." >&2
+            exit 1
+          fi
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
       - uses: bufbuild/buf-setup-action@v1
         with:
           version: 1.73.0
-      - run: buf lint
-      - run: buf breaking --against '.git#branch=main'
-      - run: buf generate
+      - run: make contracts
+      - run: make compatibility-test
       - name: Check generated output drift
-        run: |
-          git diff --exit-code -- gen/
-          test -z "$(git status --porcelain --untracked-files=all -- gen/)"
+        run: make check-generated
 
   static:
     runs-on: ubuntu-latest
@@ -36,9 +46,12 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
-      - name: Check formatting
-        run: test -z "$(gofmt -l $(find . -name '*.go' -not -path './.git/*'))"
-      - run: go vet ./...
+      - name: Check Go formatting
+        run: make fmt-check
+      - name: Run go vet
+        run: make vet
+      - name: Run Staticcheck
+        run: make staticcheck
 
   unit:
     runs-on: ubuntu-latest
@@ -47,7 +60,7 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
-      - run: go test ./... -count=1 -shuffle=on
+      - run: make test
 
   race:
     runs-on: ubuntu-latest
@@ -56,7 +69,7 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
-      - run: go test -race ./... -count=1
+      - run: make race
 
   security:
     runs-on: ubuntu-latest
@@ -66,4 +79,4 @@ jobs:
         with:
           go-version-file: go.mod
       - name: Run govulncheck
-        run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
+        run: make security

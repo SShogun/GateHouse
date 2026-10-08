@@ -521,6 +521,17 @@ git diff --exit-code -- gen/
 
 Adapt the exact baseline syntax to repository layout.
 
+The M0 contract regression is executable with `make compatibility-test`. It
+uses an isolated fixture with the repository's `FILE` breaking rules, verifies
+that deleting a published field fails with Buf's field-deletion diagnostic,
+then verifies that adding a field passes. The production API remains free of
+fixture-only messages. Pull requests compare against their actual base branch;
+push runs compare against the commit that preceded the push.
+
+Run `make verify` for the complete local M0 pre-PR set. The Makefile uses the
+Go toolchain version declared in `go.mod` and pins Staticcheck and govulncheck
+so local and CI behavior use the same tools.
+
 ## Mixed binary versions
 
 Once releases exist, keep test fixtures/images for prior supported version(s) and verify control/data-plane compatibility matrix.

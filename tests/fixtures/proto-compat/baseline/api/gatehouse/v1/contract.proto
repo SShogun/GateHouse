@@ -1,0 +1,8 @@
+syntax = "proto3";
+
+package gatehouse.v1;
+
+message Contract {
+	string retained = 1;
+	string removed = 2;
+}

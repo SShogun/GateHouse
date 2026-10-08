@@ -1,0 +1,8 @@
+version: v2
+
+modules:
+  - path: api
+
+breaking:
+  use:
+    - FILE
