@@ -10,6 +10,7 @@ import (
 	"strings"
 	"syscall"
 	"testing"
+	"testing/synctest"
 	"time"
 )
 
@@ -195,6 +196,48 @@ func TestRunBoundsShutdownAndServeWait(t *testing.T) {
 	if elapsed := time.Since(started); elapsed > time.Second {
 		t.Fatalf("Run() exceeded bounded shutdown: %s", elapsed)
 	}
+}
+
+func TestRunPreservesServeErrorWhenShutdownTimesOut(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		signalCtx, cancelSignal := context.WithCancel(context.Background())
+		cancelSignal()
+
+		serveError := errors.New("serve failed during drain")
+		drainStarted := make(chan struct{})
+		allowServeExit := make(chan struct{})
+		allowShutdownReturn := make(chan struct{})
+		finished := make(chan error, 1)
+
+		go func() {
+			finished <- Run(signalCtx, time.Second,
+				func(context.Context) error {
+					<-drainStarted
+					<-allowServeExit
+					return serveError
+				},
+				func(ctx context.Context) error {
+					close(drainStarted)
+					<-ctx.Done()
+					<-allowShutdownReturn
+					return ctx.Err()
+				},
+			)
+		}()
+
+		close(allowServeExit)
+		synctest.Wait()
+		time.Sleep(time.Second)
+		err := <-finished
+		close(allowShutdownReturn)
+
+		if !errors.Is(err, context.DeadlineExceeded) {
+			t.Fatalf("Run() error = %v, want shutdown deadline error", err)
+		}
+		if !errors.Is(err, serveError) {
+			t.Fatalf("Run() error = %v, want preserved serve error %v", err, serveError)
+		}
+	})
 }
 
 func TestRunCleansUpAfterServeFailure(t *testing.T) {

@@ -64,7 +64,12 @@ func Run(signalCtx context.Context, shutdownTimeout time.Duration, serve ServeFu
 	case <-shutdownCtx.Done():
 		shutdownErr = fmt.Errorf("graceful shutdown exceeded %s: %w", shutdownTimeout, shutdownCtx.Err())
 		cancelRoot()
-		return shutdownErr
+		select {
+		case serveErr := <-serveResult:
+			return errors.Join(shutdownErr, serveErr)
+		default:
+			return shutdownErr
+		}
 	}
 
 	cancelRoot()
