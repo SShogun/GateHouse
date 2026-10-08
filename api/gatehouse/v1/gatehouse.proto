@@ -2,6 +2,6 @@ syntax = "proto3";
 
 package gatehouse.v1;
 
-option go_package = "github.com/gatehouse/gatehouse/gen/go/gatehouse/v1;gatehousev1";
+option go_package = "github.com/SShogun/GateHouse/gen/go/gatehouse/v1;gatehousev1";
 
 // Contract definitions intentionally remain unimplemented pending human API design.
