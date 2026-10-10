@@ -10,7 +10,7 @@ A production-minded Layer 7 gateway in Go, designed around protocol correctness,
 
 </div>
 
-> **Project state: M0 — repository, contracts, and CI foundation.** The current code has process lifecycle scaffolding and generated Protobuf bindings. It does **not** yet accept network traffic, route requests, store configuration, or publish runtime configuration. This README separates the intended system from what runs today.
+> **Project state: M1 complete — static HTTP proxy and cancellation.** The data plane forwards traffic to one configured upstream; M1 tests cover forwarding semantics, informational responses, cancellation cleanup, streaming memory, hop-by-hop headers, and graceful drain. Dynamic routing, configuration storage, and publication are not implemented yet.
 
 [What exists](#what-works-today) · [Run checks](#try-the-current-foundation) · [Target architecture](#target-architecture) · [Roadmap](#roadmap) · [Docs](#repository-map)
 
@@ -33,13 +33,14 @@ Its eventual boundary is deliberately split:
 The current milestone is intentionally small. The repository provides:
 
 - separate Go command entry points for `gatehouse-control` and `gatehouse-data`;
-- SIGINT/SIGTERM handling, root cancellation, and bounded shutdown scaffolding;
+- a static HTTP reverse proxy in `gatehouse-data`, with bounded server defaults and graceful shutdown;
+- SIGINT/SIGTERM handling, root cancellation, and bounded shutdown coordination;
 - a `gatehouse.v1` Protobuf workspace with committed Go and TypeScript generated output;
 - Buf linting, compatibility checks, and generated-code drift checks;
 - an executable compatibility fixture that proves Buf rejects a removed field and accepts a compatible addition;
 - separate CI jobs for contracts, static analysis, unit tests, race tests, and vulnerability scanning.
 
-The command binaries currently wait for a shutdown signal. They do not open listeners or implement gateway behavior yet. The Protobuf package is a contract workspace, not a completed application API.
+The data-plane binary listens on `127.0.0.1:8080` and forwards every request to `http://127.0.0.1:8081` by default. Set `GATEHOUSE_LISTEN_ADDR` and `GATEHOUSE_UPSTREAM_URL` to override these in-process static settings. The control-plane binary remains a lifecycle scaffold. The Protobuf package is a contract workspace, not a completed application API.
 
 ## Target architecture
 
@@ -86,13 +87,15 @@ make verify
 
 `make verify` runs formatting checks, `go vet`, Staticcheck, Buf lint and breaking checks, the negative compatibility fixture, generated-code drift detection, module verification, unit tests, race tests, and `govulncheck`.
 
-### Run the lifecycle scaffold
+### Run the static data-plane proxy
 
 ```bash
+GATEHOUSE_LISTEN_ADDR=127.0.0.1:8080 \
+GATEHOUSE_UPSTREAM_URL=http://127.0.0.1:8081 \
 go run ./cmd/gatehouse-data
 ```
 
-The process waits for SIGINT (`Ctrl+C`) or SIGTERM, then follows the lifecycle shutdown path. It does not bind a port or proxy requests yet. The control-plane scaffold can be started with `go run ./cmd/gatehouse-control` and behaves the same way at this milestone.
+The proxy preserves the request method, path, end-to-end headers, and body; forwards response status, end-to-end headers, and body; strips hop-by-hop headers; propagates request cancellation; and streams response chunks without waiting for the full upstream body. It is a single static upstream, with no route matching or retries. SIGINT (`Ctrl+C`) and SIGTERM stop new requests and drain in-flight requests within the shutdown timeout. The control-plane scaffold can be started with `go run ./cmd/gatehouse-control` and currently waits for a shutdown signal.
 
 ## The proof bar
 
