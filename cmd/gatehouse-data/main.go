@@ -23,6 +23,10 @@ func main() {
 }
 
 func run() error {
+	listenAddress := envOrDefault("GATEHOUSE_LISTEN_ADDR", "127.0.0.1:8080")
+	if err := dataplane.ValidateDevelopmentListenAddress(listenAddress); err != nil {
+		return fmt.Errorf("validate development listener: %w", err)
+	}
 	signalCtx, stopSignals := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stopSignals()
 
@@ -34,7 +38,7 @@ func run() error {
 		return fmt.Errorf("configure data-plane proxy: %w", err)
 	}
 	server, err := dataplane.NewServer(proxy, dataplane.ServerConfig{
-		Address: envOrDefault("GATEHOUSE_LISTEN_ADDR", "127.0.0.1:8080"),
+		Address: listenAddress,
 	})
 	if err != nil {
 		return fmt.Errorf("configure data-plane listener: %w", err)

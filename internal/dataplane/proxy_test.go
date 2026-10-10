@@ -1,12 +1,14 @@
 package dataplane
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/http/httptrace"
@@ -464,9 +466,16 @@ func TestProxyLargeResponsePeakHeapDoesNotScaleWithBodySize(t *testing.T) {
 }
 
 func TestProxyStripsHopByHopRequestHeaders(t *testing.T) {
-	gotConnectionTokenHeader := make(chan string, 1)
+	type receivedHeaders struct {
+		connection string
+		token      string
+	}
+	gotHeaders := make(chan receivedHeaders, 1)
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		gotConnectionTokenHeader <- r.Header.Get("X-Hop-By-Hop")
+		gotHeaders <- receivedHeaders{
+			connection: r.Header.Get("Connection"),
+			token:      r.Header.Get("X-Hop-By-Hop"),
+		}
 		w.Header().Set("Connection", "X-Upstream-Hop")
 		w.Header().Set("X-Upstream-Hop", "must-not-reach-client")
 		w.WriteHeader(http.StatusNoContent)
@@ -480,22 +489,128 @@ func TestProxyStripsHopByHopRequestHeaders(t *testing.T) {
 	gateway := httptest.NewServer(proxy)
 	defer gateway.Close()
 
-	req, err := http.NewRequest(http.MethodGet, gateway.URL+"/headers", nil)
+	conn, err := net.DialTimeout("tcp", strings.TrimPrefix(gateway.URL, "http://"), 2*time.Second)
+	if err != nil {
+		t.Fatalf("connect to gateway: %v", err)
+	}
+	defer conn.Close()
+	if err := conn.SetDeadline(time.Now().Add(3 * time.Second)); err != nil {
+		t.Fatalf("set gateway connection deadline: %v", err)
+	}
+	if _, err := fmt.Fprintf(conn, "GET /headers HTTP/1.1\r\nHost: gateway\r\nConnection: X-Hop-By-Hop\r\nX-Hop-By-Hop: must-not-forward\r\n\r\n"); err != nil {
+		t.Fatalf("write request to gateway: %v", err)
+	}
+	reader := bufio.NewReader(conn)
+	statusLine, err := reader.ReadString('\n')
+	if err != nil {
+		t.Fatalf("read response status line: %v", err)
+	}
+	statusFields := strings.Fields(statusLine)
+	if len(statusFields) < 2 || statusFields[1] != "204" {
+		t.Fatalf("response status line = %q, want 204", statusLine)
+	}
+	responseHeaders, err := textproto.NewReader(reader).ReadMIMEHeader()
+	if err != nil {
+		t.Fatalf("read response headers: %v", err)
+	}
+	if got := <-gotHeaders; got.connection != "" || got.token != "" {
+		t.Errorf("upstream received hop-by-hop request headers: Connection=%q X-Hop-By-Hop=%q", got.connection, got.token)
+	}
+	if got := responseHeaders.Get("Connection"); got != "" {
+		t.Errorf("client received hop-by-hop Connection header %q", got)
+	}
+	if got := responseHeaders.Get("X-Upstream-Hop"); got != "" {
+		t.Errorf("client received hop-by-hop response header value %q", got)
+	}
+}
+
+func TestProxyPreservesBidirectionalProtocolUpgrade(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.EqualFold(r.Header.Get("Connection"), "Upgrade") || r.Header.Get("Upgrade") != "echo" {
+			t.Errorf("upstream upgrade headers = Connection %q, Upgrade %q", r.Header.Get("Connection"), r.Header.Get("Upgrade"))
+		}
+		hijacker, ok := w.(http.Hijacker)
+		if !ok {
+			t.Error("upstream ResponseWriter does not support hijacking")
+			return
+		}
+		conn, rw, err := hijacker.Hijack()
+		if err != nil {
+			t.Errorf("hijack upstream connection: %v", err)
+			return
+		}
+		defer conn.Close()
+		if err := conn.SetDeadline(time.Now().Add(3 * time.Second)); err != nil {
+			t.Errorf("set upstream connection deadline: %v", err)
+			return
+		}
+		if _, err := rw.WriteString("HTTP/1.1 101 Switching Protocols\r\nConnection: Upgrade\r\nUpgrade: echo\r\n\r\nupstream-ready"); err != nil {
+			t.Errorf("write upgrade response: %v", err)
+			return
+		}
+		if err := rw.Flush(); err != nil {
+			t.Errorf("flush upgrade response: %v", err)
+			return
+		}
+		message := make([]byte, len("client-message"))
+		if _, err := io.ReadFull(rw, message); err != nil {
+			t.Errorf("read upgraded client data: %v", err)
+			return
+		}
+		if _, err := conn.Write(message); err != nil {
+			t.Errorf("write upgraded response data: %v", err)
+		}
+	}))
+	defer upstream.Close()
+
+	proxy, err := NewProxy(Config{UpstreamURL: upstream.URL}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	req.Header.Set("Connection", "X-Hop-By-Hop")
-	req.Header.Set("X-Hop-By-Hop", "must-not-forward")
+	defer proxy.CloseIdleConnections()
+	gateway := httptest.NewServer(proxy)
+	defer gateway.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, gateway.URL+"/upgrade", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Connection", "Upgrade")
+	req.Header.Set("Upgrade", "echo")
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("perform upgrade request: %v", err)
 	}
-	_ = resp.Body.Close()
-	if got := <-gotConnectionTokenHeader; got != "" {
-		t.Errorf("upstream received hop-by-hop header value %q", got)
+	if resp.StatusCode != http.StatusSwitchingProtocols {
+		_ = resp.Body.Close()
+		t.Fatalf("upgrade response status = %d, want %d", resp.StatusCode, http.StatusSwitchingProtocols)
 	}
-	if got := resp.Header.Get("X-Upstream-Hop"); got != "" {
-		t.Errorf("client received hop-by-hop response header value %q", got)
+	body, ok := resp.Body.(io.ReadWriteCloser)
+	if !ok {
+		_ = resp.Body.Close()
+		t.Fatalf("upgrade response body type %T does not support bidirectional I/O", resp.Body)
+	}
+	defer body.Close()
+	const upstreamMessage = "upstream-ready"
+	gotUpstream := make([]byte, len(upstreamMessage))
+	if _, err := io.ReadFull(body, gotUpstream); err != nil {
+		t.Fatalf("read upgraded upstream data: %v", err)
+	}
+	if string(gotUpstream) != upstreamMessage {
+		t.Fatalf("upgraded upstream data = %q, want %q", gotUpstream, upstreamMessage)
+	}
+	const clientMessage = "client-message"
+	if _, err := io.WriteString(body, clientMessage); err != nil {
+		t.Fatalf("write upgraded client data: %v", err)
+	}
+	gotEcho := make([]byte, len(clientMessage))
+	if _, err := io.ReadFull(body, gotEcho); err != nil {
+		t.Fatalf("read upgraded echo: %v", err)
+	}
+	if string(gotEcho) != clientMessage {
+		t.Fatalf("upgraded echo = %q, want %q", gotEcho, clientMessage)
 	}
 }
 
