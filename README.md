@@ -98,11 +98,11 @@ go run ./cmd/gatehouse-data
 
 The default command configuration matches all requests to one cluster with one upstream endpoint. The gateway runtime also supports deterministic static route matching and cluster endpoint selection, with optional scheduled HTTP health checks when configured in memory. The proxy preserves the request method, path, end-to-end headers, and body; forwards response status, end-to-end headers, and body; strips hop-by-hop headers; propagates request cancellation; and streams response chunks without waiting for the full upstream body. Retries and dynamic configuration publication/reload are not implemented. SIGINT (`Ctrl+C`) and SIGTERM stop new requests and drain in-flight requests within the shutdown timeout. The control-plane scaffold can be started with `go run ./cmd/gatehouse-control` and currently waits for a shutdown signal.
 
-The development command accepts only literal loopback listener addresses, such as `127.0.0.1:8080` or `[::1]:8080`; wildcard addresses, non-loopback IPs, and hostnames are rejected. Authentication and TLS remain M6 work. Static defaults admit at most 128 concurrent HTTP handlers per listener, bound individual request-body read waits to 30 seconds, and bound upstream response-header waits to 30 seconds and headers to 1 MiB. Excess requests receive HTTP 503 without a queue. Active uploads and response streams retain streaming behavior; total request deadlines and route policies remain M5 work. See the [PR #5 review record](docs/Gatehouse_PR5_REVIEW.md) for dispositions and verification evidence.
+The development command accepts only literal loopback listener addresses, such as `127.0.0.1:8080` or `[::1]:8080`; wildcard addresses, non-loopback IPs, and hostnames are rejected. Defaults cap each listener at 128 concurrent HTTP handlers; excess requests receive HTTP 503 immediately, without a queue. Request headers have a 5-second read timeout and a 1 MiB size limit, and idle keep-alive connections close after 90 seconds. Each request-body read has a 30-second idle timeout, not a total upload deadline. The upstream must return response headers within 30 seconds after the request is written, and those headers are limited to 1 MiB. Request uploads and response bodies remain streamed, with no fixed response write timeout. Authentication and TLS remain M6 work; total request deadlines and route-level policies remain M5 work. See the [PR #5 review record](docs/Gatehouse_PR5_REVIEW.md) for dispositions and verification evidence.
 
 ## The proof bar
 
-GateHouse treats correctness as observable behavior. The current test foundation proves lifecycle ordering and cancellation, and the contract fixture runs Buf against both a breaking and a compatible revision. As request-handling milestones arrive, the proof suite grows with the behavior: real HTTP clients and upstreams, cancellation propagation, streaming, race/leak checks, fault injection, and bounded-resource evidence.
+GateHouse treats correctness as observable behavior. The current tests cover lifecycle ordering and cancellation, HTTP forwarding and streaming, deterministic route matching and endpoint selection, health-check behavior, bounded listener resources, and contract compatibility. The contract fixture runs Buf against both a breaking and a compatible revision. Later milestones add protocol-specific behavior such as HTTP/2, Connect/gRPC status and trailer semantics, deadlines, and retry policies, with tests required before those capabilities are claimed.
 
 No protocol is considered supported because a happy-path demo happened to work. The roadmap requires real HTTP/1.1 and HTTP/2 behavior, Connect/gRPC status and trailer semantics, and streaming/cancellation tests before those claims are made.
 
@@ -133,11 +133,16 @@ cmd/gatehouse-control/     Control-plane process entry point
 cmd/gatehouse-data/        Data-plane process entry point
 gen/go/                    Committed Go Protobuf bindings
 gen/ts/                    Committed TypeScript Protobuf bindings
+internal/cluster/          Endpoint selection and health-check scheduling
+internal/config/           In-memory listener and cluster configuration
+internal/dataplane/        HTTP proxy, listener, and resource limits
+internal/gateway/          Configuration validation and runtime assembly
 internal/lifecycle/        Signal, root-context, and shutdown coordination
+internal/router/           Deterministic route matching
 scripts/                   Contract compatibility proof
 tests/fixtures/proto-compat/ Baseline, breaking, and compatible contracts
 docs/                      Architecture, decisions, roadmap, testing/CI
-.github/workflows/ci.yml   Separate, visible M0 CI gates
+.github/workflows/ci.yml   Separate contract, analysis, test, race, and security jobs
 Makefile                   Local verification commands
 ```
 
