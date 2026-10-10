@@ -1,0 +1,5 @@
+go test fuzz v1
+string("..eXAmple.Com")
+string("/")
+string("0")
+string("0")

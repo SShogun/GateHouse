@@ -10,7 +10,7 @@ A production-minded Layer 7 gateway in Go, designed around protocol correctness,
 
 </div>
 
-> **Project state: M1 complete — static HTTP proxy and cancellation.** The data plane forwards traffic to one configured upstream; M1 tests cover forwarding semantics, informational responses, cancellation cleanup, streaming memory, hop-by-hop headers, and graceful drain. Dynamic routing, configuration storage, and publication are not implemented yet.
+> **Project state: M2 implementation present — static routing, clusters, and health.** The gateway can compile in-memory listener, route, and cluster configuration, match requests deterministically, select eligible endpoints, and run optional HTTP health checks. The `gatehouse-data` command still builds a single default route and cluster from environment variables. M3 configuration storage and dynamic publication/reload are not implemented.
 
 [What exists](#what-works-today) · [Run checks](#try-the-current-foundation) · [Target architecture](#target-architecture) · [Roadmap](#roadmap) · [Docs](#repository-map)
 
@@ -30,17 +30,18 @@ Its eventual boundary is deliberately split:
 
 ## What works today
 
-The current milestone is intentionally small. The repository provides:
+The current implementation provides:
 
 - separate Go command entry points for `gatehouse-control` and `gatehouse-data`;
-- a static HTTP reverse proxy in `gatehouse-data`, with bounded server defaults and graceful shutdown;
+- a static HTTP reverse proxy and compiled in-memory route/cluster runtime, with bounded server defaults and graceful shutdown;
+- deterministic route matching, endpoint selection, and optional scheduled HTTP health checks;
 - SIGINT/SIGTERM handling, root cancellation, and bounded shutdown coordination;
 - a `gatehouse.v1` Protobuf workspace with committed Go and TypeScript generated output;
 - Buf linting, compatibility checks, and generated-code drift checks;
 - an executable compatibility fixture that proves Buf rejects a removed field and accepts a compatible addition;
 - separate CI jobs for contracts, static analysis, unit tests, race tests, and vulnerability scanning.
 
-The data-plane binary listens on `127.0.0.1:8080` and forwards every request to `http://127.0.0.1:8081` by default. Set `GATEHOUSE_LISTEN_ADDR` and `GATEHOUSE_UPSTREAM_URL` to override these in-process static settings. The control-plane binary remains a lifecycle scaffold. The Protobuf package is a contract workspace, not a completed application API.
+The data-plane binary listens on `127.0.0.1:8080` and routes requests to `http://127.0.0.1:8081` by default. Set `GATEHOUSE_LISTEN_ADDR` and `GATEHOUSE_UPSTREAM_URL` to override the listener and the sole endpoint configured by this command. The gateway/config packages support richer static in-memory route and cluster configurations, but the command does not load them from a file or control plane. The control-plane binary remains a lifecycle scaffold. The Protobuf package is a contract workspace, not a completed application API.
 
 ## Target architecture
 
@@ -95,13 +96,13 @@ GATEHOUSE_UPSTREAM_URL=http://127.0.0.1:8081 \
 go run ./cmd/gatehouse-data
 ```
 
-The proxy preserves the request method, path, end-to-end headers, and body; forwards response status, end-to-end headers, and body; strips hop-by-hop headers; propagates request cancellation; and streams response chunks without waiting for the full upstream body. It is a single static upstream, with no route matching or retries. SIGINT (`Ctrl+C`) and SIGTERM stop new requests and drain in-flight requests within the shutdown timeout. The control-plane scaffold can be started with `go run ./cmd/gatehouse-control` and currently waits for a shutdown signal.
+The default command configuration matches all requests to one cluster with one upstream endpoint. The gateway runtime also supports deterministic static route matching and cluster endpoint selection, with optional scheduled HTTP health checks when configured in memory. The proxy preserves the request method, path, end-to-end headers, and body; forwards response status, end-to-end headers, and body; strips hop-by-hop headers; propagates request cancellation; and streams response chunks without waiting for the full upstream body. Retries and dynamic configuration publication/reload are not implemented. SIGINT (`Ctrl+C`) and SIGTERM stop new requests and drain in-flight requests within the shutdown timeout. The control-plane scaffold can be started with `go run ./cmd/gatehouse-control` and currently waits for a shutdown signal.
 
 The development command accepts only literal loopback listener addresses, such as `127.0.0.1:8080` or `[::1]:8080`; wildcard addresses, non-loopback IPs, and hostnames are rejected. Defaults cap each listener at 128 concurrent HTTP handlers; excess requests receive HTTP 503 immediately, without a queue. Request headers have a 5-second read timeout and a 1 MiB size limit, and idle keep-alive connections close after 90 seconds. Each request-body read has a 30-second idle timeout, not a total upload deadline. The upstream must return response headers within 30 seconds after the request is written, and those headers are limited to 1 MiB. Request uploads and response bodies remain streamed, with no fixed response write timeout. Authentication and TLS remain M6 work; total request deadlines and route-level policies remain M5 work. See the [PR #5 review record](docs/Gatehouse_PR5_REVIEW.md) for dispositions and verification evidence.
 
 ## The proof bar
 
-GateHouse treats correctness as observable behavior. The current test foundation proves lifecycle ordering and cancellation, and the contract fixture runs Buf against both a breaking and a compatible revision. As request-handling milestones arrive, the proof suite grows with the behavior: real HTTP clients and upstreams, cancellation propagation, streaming, race/leak checks, fault injection, and bounded-resource evidence.
+GateHouse treats correctness as observable behavior. The current tests cover lifecycle ordering and cancellation, HTTP forwarding and streaming, deterministic route matching and endpoint selection, health-check behavior, bounded listener resources, and contract compatibility. The contract fixture runs Buf against both a breaking and a compatible revision. Later milestones add protocol-specific behavior such as HTTP/2, Connect/gRPC status and trailer semantics, deadlines, and retry policies, with tests required before those capabilities are claimed.
 
 No protocol is considered supported because a happy-path demo happened to work. The roadmap requires real HTTP/1.1 and HTTP/2 behavior, Connect/gRPC status and trailer semantics, and streaming/cancellation tests before those claims are made.
 
@@ -132,11 +133,16 @@ cmd/gatehouse-control/     Control-plane process entry point
 cmd/gatehouse-data/        Data-plane process entry point
 gen/go/                    Committed Go Protobuf bindings
 gen/ts/                    Committed TypeScript Protobuf bindings
+internal/cluster/          Endpoint selection and health-check scheduling
+internal/config/           In-memory listener and cluster configuration
+internal/dataplane/        HTTP proxy, listener, and resource limits
+internal/gateway/          Configuration validation and runtime assembly
 internal/lifecycle/        Signal, root-context, and shutdown coordination
+internal/router/           Deterministic route matching
 scripts/                   Contract compatibility proof
 tests/fixtures/proto-compat/ Baseline, breaking, and compatible contracts
 docs/                      Architecture, decisions, roadmap, testing/CI
-.github/workflows/ci.yml   Separate, visible M0 CI gates
+.github/workflows/ci.yml   Separate contract, analysis, test, race, and security jobs
 Makefile                   Local verification commands
 ```
 
