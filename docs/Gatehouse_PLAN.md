@@ -224,13 +224,14 @@ Do not add retries yet.
 ## Gate M1
 
 ```text
-[ ] HTTP proxy semantic test GREEN
-[ ] cancel reaches upstream GREEN
-[ ] streaming-first-byte test GREEN
-[ ] huge streamed response does not scale memory with response size
-[ ] hop-by-hop header tests GREEN
-[ ] graceful shutdown unary request test GREEN
-[ ] race + leak checks GREEN
+[x] HTTP proxy semantic test GREEN
+[x] cancel reaches upstream GREEN
+[x] streaming-first-byte test GREEN
+[x] huge streamed response does not scale memory with response size (sampled peak HeapAlloc: 8 MiB → 128 MiB body, growth under 24 MiB)
+[x] hop-by-hop header tests GREEN
+[x] structured failure outcome logged when an upstream response aborts
+[x] graceful shutdown in-flight request test GREEN
+[x] race + leak checks GREEN (16 concurrent cancellations; active count 16→0 and goroutines return within baseline +4)
 ```
 
 ---
@@ -286,14 +287,16 @@ Implement:
 ## Gate M2
 
 ```text
-[ ] full route precedence matrix GREEN
-[ ] fuzz smoke GREEN
-[ ] health scheduler add/remove leak test GREEN
-[ ] endpoint selection never chooses known-unhealthy endpoint when healthy choice exists
-[ ] config with empty/missing cluster rejected
-[ ] 10k route-match benchmark recorded
-[ ] race GREEN under concurrent requests + health transitions
+[x] full route precedence matrix GREEN
+[x] fuzz smoke GREEN
+[x] health scheduler add/remove leak test GREEN
+[x] endpoint selection never chooses known-unhealthy endpoint when healthy choice exists
+[x] config with empty/missing cluster rejected
+[x] 10k route-match benchmark recorded
+[x] race GREEN under concurrent requests + health transitions
 ```
+
+M2 acceptance evidence is recorded in `Gatehouse_TESTING_CI.md`.
 
 ---
 

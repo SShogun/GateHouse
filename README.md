@@ -6,11 +6,11 @@
 
 A production-minded Layer 7 gateway in Go, designed around protocol correctness, safe configuration rollouts, and predictable failure behavior.
 
-**Go:** 1.26.8 · **Contracts:** Protobuf · **CI:** [GitHub Actions](https://github.com/SShogun/GateHouse/actions/workflows/ci.yml)
+**Go:** 1.26.9 · **Contracts:** Protobuf · **CI:** [GitHub Actions](https://github.com/SShogun/GateHouse/actions/workflows/ci.yml)
 
 </div>
 
-> **Project state: M0 — repository, contracts, and CI foundation.** The current code has process lifecycle scaffolding and generated Protobuf bindings. It does **not** yet accept network traffic, route requests, store configuration, or publish runtime configuration. This README separates the intended system from what runs today.
+> **Project state: M2 implementation present — static routing, clusters, and health.** The gateway can compile in-memory listener, route, and cluster configuration, match requests deterministically, select eligible endpoints, and run optional HTTP health checks. The `gatehouse-data` command still builds a single default route and cluster from environment variables. M3 configuration storage and dynamic publication/reload are not implemented.
 
 [What exists](#what-works-today) · [Run checks](#try-the-current-foundation) · [Target architecture](#target-architecture) · [Roadmap](#roadmap) · [Docs](#repository-map)
 
@@ -30,16 +30,18 @@ Its eventual boundary is deliberately split:
 
 ## What works today
 
-The current milestone is intentionally small. The repository provides:
+The current implementation provides:
 
 - separate Go command entry points for `gatehouse-control` and `gatehouse-data`;
-- SIGINT/SIGTERM handling, root cancellation, and bounded shutdown scaffolding;
+- a static HTTP reverse proxy and compiled in-memory route/cluster runtime, with bounded server defaults and graceful shutdown;
+- deterministic route matching, endpoint selection, and optional scheduled HTTP health checks;
+- SIGINT/SIGTERM handling, root cancellation, and bounded shutdown coordination;
 - a `gatehouse.v1` Protobuf workspace with committed Go and TypeScript generated output;
 - Buf linting, compatibility checks, and generated-code drift checks;
 - an executable compatibility fixture that proves Buf rejects a removed field and accepts a compatible addition;
 - separate CI jobs for contracts, static analysis, unit tests, race tests, and vulnerability scanning.
 
-The command binaries currently wait for a shutdown signal. They do not open listeners or implement gateway behavior yet. The Protobuf package is a contract workspace, not a completed application API.
+The data-plane binary listens on `127.0.0.1:8080` and routes requests to `http://127.0.0.1:8081` by default. Set `GATEHOUSE_LISTEN_ADDR` and `GATEHOUSE_UPSTREAM_URL` to override the listener and the sole endpoint configured by this command. The gateway/config packages support richer static in-memory route and cluster configurations, but the command does not load them from a file or control plane. The control-plane binary remains a lifecycle scaffold. The Protobuf package is a contract workspace, not a completed application API.
 
 ## Target architecture
 
@@ -71,7 +73,7 @@ The critical separation: the control plane owns durable configuration and public
 ### Requirements
 
 - Git
-- Go 1.26.8 (the `go.mod` toolchain directive is authoritative)
+- Go 1.26.9 (the `go.mod` Go version is authoritative)
 - Buf CLI 1.73.0
 - `make`
 - Network access on the first verification run to download pinned analysis tools and Buf generators
@@ -86,13 +88,17 @@ make verify
 
 `make verify` runs formatting checks, `go vet`, Staticcheck, Buf lint and breaking checks, the negative compatibility fixture, generated-code drift detection, module verification, unit tests, race tests, and `govulncheck`.
 
-### Run the lifecycle scaffold
+### Run the static data-plane proxy
 
 ```bash
+GATEHOUSE_LISTEN_ADDR=127.0.0.1:8080 \
+GATEHOUSE_UPSTREAM_URL=http://127.0.0.1:8081 \
 go run ./cmd/gatehouse-data
 ```
 
-The process waits for SIGINT (`Ctrl+C`) or SIGTERM, then follows the lifecycle shutdown path. It does not bind a port or proxy requests yet. The control-plane scaffold can be started with `go run ./cmd/gatehouse-control` and behaves the same way at this milestone.
+The default command configuration matches all requests to one cluster with one upstream endpoint. The gateway runtime also supports deterministic static route matching and cluster endpoint selection, with optional scheduled HTTP health checks when configured in memory. The proxy preserves the request method, path, end-to-end headers, and body; forwards response status, end-to-end headers, and body; strips hop-by-hop headers; propagates request cancellation; and streams response chunks without waiting for the full upstream body. Retries and dynamic configuration publication/reload are not implemented. SIGINT (`Ctrl+C`) and SIGTERM stop new requests and drain in-flight requests within the shutdown timeout. The control-plane scaffold can be started with `go run ./cmd/gatehouse-control` and currently waits for a shutdown signal.
+
+The development command accepts only literal loopback listener addresses, such as `127.0.0.1:8080` or `[::1]:8080`; wildcard addresses, non-loopback IPs, and hostnames are rejected. Authentication and TLS remain M6 work. Static defaults admit at most 128 concurrent HTTP handlers per listener, bound individual request-body read waits to 30 seconds, and bound upstream response-header waits to 30 seconds and headers to 1 MiB. Excess requests receive HTTP 503 without a queue. Active uploads and response streams retain streaming behavior; total request deadlines and route policies remain M5 work. See the [PR #5 review record](docs/Gatehouse_PR5_REVIEW.md) for dispositions and verification evidence.
 
 ## The proof bar
 
