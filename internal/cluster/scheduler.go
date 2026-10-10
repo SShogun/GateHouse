@@ -3,6 +3,7 @@ package cluster
 import (
 	"context"
 	"errors"
+	"math/rand"
 	"sync"
 	"time"
 )
@@ -22,16 +23,46 @@ type scheduledProbe struct {
 	done   chan struct{}
 }
 
+// SchedulerOptions bounds active checks and controls probe timing. A nil Jitter
+// selects a random delay within 10% of the configured interval on either side.
+type SchedulerOptions struct {
+	ProbeTimeout  time.Duration
+	MaxConcurrent int
+	Jitter        func(time.Duration) time.Duration
+}
+
 // Scheduler owns at most one periodic worker per registered ID.
 type Scheduler struct {
-	mu       sync.Mutex
-	entries  map[string]*scheduledProbe
-	stopped  bool
-	stopDone chan struct{}
+	mu        sync.Mutex
+	entries   map[string]*scheduledProbe
+	stopped   bool
+	stopDone  chan struct{}
+	options   SchedulerOptions
+	semaphore chan struct{}
 }
 
 func NewScheduler() *Scheduler {
-	return &Scheduler{entries: make(map[string]*scheduledProbe), stopDone: make(chan struct{})}
+	return NewSchedulerWithOptions(SchedulerOptions{})
+}
+
+// NewSchedulerWithOptions creates a scheduler with bounded, cancelable probes.
+func NewSchedulerWithOptions(options SchedulerOptions) *Scheduler {
+	if options.ProbeTimeout <= 0 {
+		options.ProbeTimeout = 5 * time.Second
+	}
+	if options.MaxConcurrent <= 0 {
+		options.MaxConcurrent = 16
+	}
+	if options.Jitter == nil {
+		options.Jitter = func(interval time.Duration) time.Duration {
+			span := int64(interval / 10)
+			if span == 0 {
+				return 0
+			}
+			return time.Duration(rand.Int63n(2*span+1) - span)
+		}
+	}
+	return &Scheduler{entries: make(map[string]*scheduledProbe), stopDone: make(chan struct{}), options: options, semaphore: make(chan struct{}, options.MaxConcurrent)}
 }
 
 // Add starts an immediate probe followed by periodic probes. Duplicate IDs fail.
@@ -53,8 +84,20 @@ func (s *Scheduler) Add(id string, interval time.Duration, probe Probe) error {
 	go func() {
 		defer close(entry.done)
 		for {
-			_ = probe(ctx)
-			timer := time.NewTimer(interval)
+			select {
+			case s.semaphore <- struct{}{}:
+			case <-ctx.Done():
+				return
+			}
+			probeCtx, probeCancel := context.WithTimeout(ctx, s.options.ProbeTimeout)
+			_ = probe(probeCtx)
+			probeCancel()
+			<-s.semaphore
+			delay := interval + s.options.Jitter(interval)
+			if delay <= 0 {
+				delay = interval
+			}
+			timer := time.NewTimer(delay)
 			select {
 			case <-ctx.Done():
 				timer.Stop()

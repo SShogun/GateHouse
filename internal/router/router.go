@@ -50,7 +50,13 @@ type Request struct {
 
 // Matcher is an immutable compiled route set safe for concurrent matching.
 type Matcher struct {
-	routes []Route
+	root *pathNode
+}
+
+type pathNode struct {
+	children map[byte]*pathNode
+	prefix   map[string][]Route
+	exact    map[string][]Route
 }
 
 // Compile validates route configuration and cluster references, then creates
@@ -109,7 +115,33 @@ func Compile(config Config, clusterIDs []string) (*Matcher, error) {
 		}
 	}
 	sort.Slice(routes, func(i, j int) bool { return routes[i].ID < routes[j].ID })
-	return &Matcher{routes: routes}, nil
+	root := &pathNode{}
+	for _, route := range routes {
+		node := root
+		for i := 0; i < len(route.Path); i++ {
+			if node.children == nil {
+				node.children = make(map[byte]*pathNode)
+			}
+			if node.children[route.Path[i]] == nil {
+				node.children[route.Path[i]] = &pathNode{}
+			}
+			node = node.children[route.Path[i]]
+		}
+		index := node.prefix
+		if route.PathType == PathExact {
+			index = node.exact
+		}
+		if index == nil {
+			index = make(map[string][]Route)
+			if route.PathType == PathExact {
+				node.exact = index
+			} else {
+				node.prefix = index
+			}
+		}
+		index[route.Host] = append(index[route.Host], route)
+	}
+	return &Matcher{root: root}, nil
 }
 
 // Match returns the highest-precedence matching route. A nil Matcher behaves
@@ -120,13 +152,42 @@ func (m *Matcher) Match(request Request) (Route, bool) {
 	}
 	var winner Route
 	found := false
-	for _, route := range m.routes {
-		if !routeMatches(route, request) {
-			continue
+	host := normalizeRequestHost(request.Host)
+	method := strings.ToUpper(request.Method)
+	visit := func(node *pathNode, exact bool) {
+		index := node.prefix
+		if exact {
+			index = node.exact
 		}
-		if !found || routePrecedes(route, winner) {
-			winner, found = route, true
+		if index == nil {
+			return
 		}
+		check := func(routes []Route) {
+			for _, route := range routes {
+				if routeSelectorsMatch(route, host, request.Path, method, request.Headers) && (!found || routePrecedes(route, winner)) {
+					winner, found = route, true
+				}
+			}
+		}
+		check(index[""])
+		check(index[host])
+		for i := 0; i < len(host); i++ {
+			if host[i] == '.' {
+				check(index["*."+host[i+1:]])
+			}
+		}
+	}
+	node := m.root
+	visit(node, false)
+	for i := 0; i < len(request.Path); i++ {
+		node = node.children[request.Path[i]]
+		if node == nil {
+			break
+		}
+		visit(node, false)
+	}
+	if node != nil {
+		visit(node, true)
 	}
 	if !found {
 		return Route{}, false
@@ -146,22 +207,22 @@ func cloneRoute(route Route) Route {
 	return route
 }
 
-func routeMatches(route Route, request Request) bool {
-	host := normalizeRequestHost(request.Host)
+func routeSelectorsMatch(route Route, host, path, method string, headers http.Header) bool {
 	if !hostMatches(route.Host, host) {
 		return false
 	}
-	if route.PathType == PathExact && request.Path != route.Path {
+	if route.PathType == PathExact && path != route.Path {
 		return false
 	}
-	if route.PathType == PathPrefix && !strings.HasPrefix(request.Path, route.Path) {
+	if route.PathType == PathPrefix && !strings.HasPrefix(path, route.Path) {
 		return false
 	}
-	if len(route.Methods) > 0 && !contains(route.Methods, strings.ToUpper(request.Method)) {
+	if len(route.Methods) > 0 && !contains(route.Methods, method) {
 		return false
 	}
 	for name, value := range route.Headers {
-		if request.Headers.Get(name) != value {
+		values, exists := headers[name]
+		if !exists || len(values) != 1 || values[0] != value {
 			return false
 		}
 	}
@@ -268,7 +329,7 @@ func normalizeHeaders(headers map[string]string) (map[string]string, error) {
 	out := make(map[string]string, len(headers))
 	for name, value := range headers {
 		canonical := http.CanonicalHeaderKey(name)
-		if canonical == "" || strings.ContainsAny(canonical, " \t\r\n:") {
+		if !validHeaderName(name) {
 			return nil, fmt.Errorf("invalid header constraint name %q", name)
 		}
 		if _, exists := out[canonical]; exists {
@@ -277,6 +338,19 @@ func normalizeHeaders(headers map[string]string) (map[string]string, error) {
 		out[canonical] = value
 	}
 	return out, nil
+}
+
+func validHeaderName(name string) bool {
+	if name == "" {
+		return false
+	}
+	for i := 0; i < len(name); i++ {
+		c := name[i]
+		if !(c >= '0' && c <= '9' || c >= 'A' && c <= 'Z' || c >= 'a' && c <= 'z' || strings.ContainsRune("!#$%&'*+-.^_`|~", rune(c))) {
+			return false
+		}
+	}
+	return true
 }
 
 func ambiguous(a, b Route) bool {
@@ -353,7 +427,8 @@ func sameSelectors(a, b Route) bool {
 		return false
 	}
 	for name, value := range a.Headers {
-		if b.Headers[name] != value {
+		other, exists := b.Headers[name]
+		if !exists || other != value {
 			return false
 		}
 	}

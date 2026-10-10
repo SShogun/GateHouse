@@ -66,11 +66,13 @@ type endpointHealth struct {
 
 // Cluster owns mutable health and selection cursor state for one config snapshot.
 type Cluster struct {
-	mu         sync.Mutex
-	endpoints  []Endpoint
-	health     map[string]*endpointHealth
-	thresholds HealthThresholds
-	cursor     uint64
+	mu              sync.Mutex
+	endpoints       []Endpoint
+	health          map[string]*endpointHealth
+	thresholds      HealthThresholds
+	cursor          uint64
+	weightedCurrent map[string]int64
+	weightedKey     string
 }
 
 // New validates and copies endpoint configuration. Zero health thresholds default to 1.
@@ -105,8 +107,8 @@ func New(cfg Config) (*Cluster, error) {
 // Select returns one enabled endpoint that is not known Unhealthy. Unknown
 // endpoints remain eligible until the unhealthy threshold is crossed. If all
 // endpoints are unavailable, it returns ErrNoHealthyEndpoints. Weighted
-// selection draws proportionally to configured positive weights using source;
-// the source is consulted only for that policy.
+// selection uses smooth weighted round robin. source breaks exact score ties,
+// making tie outcomes deterministic and injectable by callers.
 func (c *Cluster) Select(policy Policy, source SelectionSource) (Endpoint, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -128,19 +130,31 @@ func (c *Cluster) Select(policy Policy, source SelectionSource) (Endpoint, error
 		if source == nil {
 			return Endpoint{}, ErrSelectionSource
 		}
-		var total uint64
+		var total int64
+		key := ""
 		for _, ep := range eligible {
-			total += uint64(ep.Weight)
+			total += int64(ep.Weight)
+			key += fmt.Sprintf("%d:%s:%d;", len(ep.ID), ep.ID, ep.Weight)
 		}
-		draw := source.Uint64n(total) % total
+		if key != c.weightedKey {
+			c.weightedKey = key
+			c.weightedCurrent = make(map[string]int64, len(eligible))
+		}
+		var best int64
+		candidates := make([]Endpoint, 0, len(eligible))
 		for _, ep := range eligible {
-			weight := uint64(ep.Weight)
-			if draw < weight {
-				return ep, nil
+			c.weightedCurrent[ep.ID] += int64(ep.Weight)
+			if len(candidates) == 0 || c.weightedCurrent[ep.ID] > best {
+				best = c.weightedCurrent[ep.ID]
+				candidates = candidates[:0]
+				candidates = append(candidates, ep)
+			} else if c.weightedCurrent[ep.ID] == best {
+				candidates = append(candidates, ep)
 			}
-			draw -= weight
 		}
-		panic("unreachable weighted selection")
+		selected := candidates[source.Uint64n(uint64(len(candidates)))%uint64(len(candidates))]
+		c.weightedCurrent[selected.ID] -= total
+		return selected, nil
 	default:
 		return Endpoint{}, fmt.Errorf("%w: unknown selection policy %q", ErrInvalidConfig, policy)
 	}

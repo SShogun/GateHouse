@@ -287,14 +287,16 @@ Implement:
 ## Gate M2
 
 ```text
-[ ] full route precedence matrix GREEN
-[ ] fuzz smoke GREEN
-[ ] health scheduler add/remove leak test GREEN
-[ ] endpoint selection never chooses known-unhealthy endpoint when healthy choice exists
-[ ] config with empty/missing cluster rejected
-[ ] 10k route-match benchmark recorded
-[ ] race GREEN under concurrent requests + health transitions
+[x] full route precedence matrix GREEN
+[x] fuzz smoke GREEN
+[x] health scheduler add/remove leak test GREEN
+[x] endpoint selection never chooses known-unhealthy endpoint when healthy choice exists
+[x] config with empty/missing cluster rejected
+[x] 10k route-match benchmark recorded
+[x] race GREEN under concurrent requests + health transitions
 ```
+
+M2 acceptance evidence is recorded in `Gatehouse_TESTING_CI.md`.
 
 ---
 

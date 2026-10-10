@@ -380,6 +380,6 @@ An unauthenticated developer mode may bind loopback only and must be explicit. â
 
 The Go module path follows the canonical repository identity: `github.com/SShogun/GateHouse`.
 
-Since `gatehouse.v1` currently defines no application messages and the project is pre-release (M0), the `go_package` option in `gatehouse.v1` has been updated directly to match the new canonical repository path. 
+Since `gatehouse.v1` defined no application messages and the project was pre-release (M0), the `go_package` option in `gatehouse.v1` was updated directly to match the new canonical repository path.
 
-To satisfy Buf's strict `FILE` compatibility rules during this zero-consumer migration, a narrowly scoped `breaking.ignore_only` exception for `FILE_SAME_GO_PACKAGE` on `gatehouse.proto` is temporarily applied in `buf.yaml`. This exception must be removed immediately after merging, once the new main commit becomes the compatibility baseline.
+The zero-consumer migration completed in M0. The temporary `FILE_SAME_GO_PACKAGE` exception was removed in commit `0d366eb`; `buf.yaml` now enforces strict `FILE` compatibility. No temporary exception remains.

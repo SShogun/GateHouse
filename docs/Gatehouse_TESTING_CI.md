@@ -774,3 +774,25 @@ known quarantined tests (ideally none)
 ```
 
 A green badge without the ability to reproduce commands locally is insufficient.
+
+## Historical M0 completion evidence
+
+M0 was verified by PR #4 at commit `408be0505f48f096ae1af0cd42d5279229531f72` on 2026-10-10. The [GitHub Actions run](https://github.com/SShogun/GateHouse/actions/runs/38056682768) reports `contracts`, `static`, `unit`, `race`, and `security` all successful. That commit used Go `1.26.8` from `go.mod` and Buf `1.73.0` from the CI workflow. This is historical evidence for the M0 skeleton; later toolchain security findings are tracked against M1/M2.
+
+## M1 local verification evidence
+
+The M1 fixes were verified in the dirty `codex/m1-static-http-proxy` checkout based on `c859bb8` on 2026-10-10. The project `make verify` passed with Go `1.26.9`: vet, staticcheck, Buf lint and compatibility fixtures, generated-file cleanliness, module verification, unit tests, race tests, and govulncheck (`No vulnerabilities found`). The focused RED showed a failing `RoundTripper` response being logged as success; the fix records transport failure per request. A separate regression confirms a valid upstream HTTP 502 remains a successful proxy response. The current uncommitted M1 state has no exact-head GitHub CI result; remote verification requires the approved commit/push checkpoint.
+
+## M2 local verification evidence
+
+The M2 implementation, the integrated M1 proxy fix, and tests were verified in a dirty worktree based on `8459cec` on 2026-10-10. After the final independent-audit fixes, `GOCACHE=/tmp/gatehouse-gocache GOMODCACHE=/tmp/gatehouse-modcache make verify` passed using the module-pinned Go `1.26.9`, staticcheck `v0.7.0`, and govulncheck `v1.8.0`. The gate covered vet, staticcheck, Buf lint, breaking-fixture rejection and compatible-fixture acceptance, generated-file cleanliness, module checks, shuffled unit tests, race tests, and vulnerability scanning (`No vulnerabilities found`).
+
+M2-specific evidence:
+
+- The header-constraint regression RED showed missing and repeated empty values matching an empty-value constraint, and malformed `X@Bad` being accepted. The focused router suite now covers missing, present-empty, wrong, and repeated values, plus malformed names.
+- A 3-second `FuzzRouteMatch` smoke run completed 374,404 executions. Its expected winner is computed by an independent oracle, not the production matcher or comparator.
+- `BenchmarkMatch10KRoutes` recorded 239.4 ns/op, 32 B/op, and 1 alloc/op on linux/amd64 with Go `1.27.1-X:nodwarf5`. This benchmark runtime differs from the pinned Go `1.26.9` used for `make verify`.
+- Behavioral RED/GREEN tests cover smooth weighted round-robin cycle counts, deterministic source tie-breaking, active health transitions and exclusion, health probe cancellation, configured timeout bounds, scheduler concurrency limits, and concurrent requests during health-state changes.
+- The independent Sol review found and the final race run now covers startup health probes against a fully built cluster map (128 health-checked clusters); the gateway defers starting workers until runtime construction completes. Additional regressions cover incomplete 2xx health bodies, escaped health-path preservation on the HTTP wire, health paths containing query/fragment delimiters, ambiguous routes with distinct empty-valued headers, malformed listener addresses, and route/cluster IDs in abort telemetry. The fuzz oracle's seed corpus includes a bracketed host without a port as well as a host with a port, and the oracle covers both normalization forms independently.
+
+The dirty M2 worktree includes the same M1 `RoundTripper` outcome fix as the main M1 checkout, with regression coverage for both transport errors and valid upstream 502 responses. This evidence is local to the uncommitted worktree based on `8459cec`; GitHub CI has not run against these current M2 changes. The PR branch remains pending the user-approved commit and push checkpoint.

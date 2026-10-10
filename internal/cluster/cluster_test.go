@@ -64,10 +64,92 @@ func TestWeightedSelectionUsesConfiguredWeights(t *testing.T) {
 		}
 		got[i] = ep.ID
 	}
-	want := []string{"light", "heavy", "heavy", "heavy"}
+	want := []string{"heavy", "heavy", "light", "heavy"}
 	for i := range want {
 		if got[i] != want[i] {
 			t.Fatalf("selection %v, want %v", got, want)
+		}
+	}
+}
+
+func TestWeightedRoundRobinHasDeterministicWeightCycles(t *testing.T) {
+	config := Config{Endpoints: []Endpoint{
+		{ID: "a", Weight: 5},
+		{ID: "b", Weight: 1},
+	}}
+	first, err := New(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := New(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	source := &sequenceSource{values: make([]uint64, 24)}
+	secondSource := &sequenceSource{values: make([]uint64, 24)}
+	gotA, gotB := 0, 0
+	for i := 0; i < 24; i++ {
+		left, err := first.Select(Weighted, source)
+		if err != nil {
+			t.Fatal(err)
+		}
+		right, err := second.Select(Weighted, secondSource)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if left.ID != right.ID {
+			t.Fatalf("selection %d differs between identical clusters: %q vs %q", i, left.ID, right.ID)
+		}
+		if left.ID == "a" {
+			gotA++
+		} else if left.ID == "b" {
+			gotB++
+		} else {
+			t.Fatalf("unexpected endpoint %q", left.ID)
+		}
+	}
+	if gotA != 20 || gotB != 4 {
+		t.Fatalf("24 selections = a:%d b:%d, want a:20 b:4", gotA, gotB)
+	}
+}
+
+func TestWeightedRoundRobinUsesSourceForTiesAndPreservesCycleWeights(t *testing.T) {
+	config := Config{Endpoints: []Endpoint{{ID: "a", Weight: 1}, {ID: "b", Weight: 1}}}
+	selectFirst := func(values []uint64) []string {
+		t.Helper()
+		c, err := New(config)
+		if err != nil {
+			t.Fatal(err)
+		}
+		source := &sequenceSource{values: values}
+		got := make([]string, 6)
+		for i := range got {
+			endpoint, err := c.Select(Weighted, source)
+			if err != nil {
+				t.Fatal(err)
+			}
+			got[i] = endpoint.ID
+		}
+		return got
+	}
+	fromA := selectFirst([]uint64{0, 0, 0, 0, 0, 0})
+	fromB := selectFirst([]uint64{1, 1, 1, 1, 1, 1})
+	replayA := selectFirst([]uint64{0, 0, 0, 0, 0, 0})
+	if fromA[0] != "a" || fromB[0] != "b" {
+		t.Fatalf("source tie choices = %q and %q, want a and b", fromA[0], fromB[0])
+	}
+	for i := range fromA {
+		if fromA[i] != replayA[i] {
+			t.Fatalf("same source replay differs: %v vs %v", fromA, replayA)
+		}
+	}
+	for label, sequence := range map[string][]string{"source 0": fromA, "source 1": fromB} {
+		counts := map[string]int{}
+		for _, id := range sequence {
+			counts[id]++
+		}
+		if counts["a"] != 3 || counts["b"] != 3 {
+			t.Fatalf("%s six-selection cycle = %v, want a:3 b:3", label, counts)
 		}
 	}
 }

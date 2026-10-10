@@ -513,6 +513,66 @@ func readLine(r io.Reader) (string, error) {
 	}
 }
 
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
+
+func TestProxyTransportErrorLogsFailureOutcome(t *testing.T) {
+	var logs bytes.Buffer
+	proxy, err := NewProxy(Config{UpstreamURL: "http://upstream.invalid"}, slog.New(slog.NewJSONHandler(&logs, nil)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	proxy.upstream.Transport = roundTripFunc(func(*http.Request) (*http.Response, error) {
+		return nil, fmt.Errorf("dial failed")
+	})
+	defer proxy.CloseIdleConnections()
+
+	response := httptest.NewRecorder()
+	proxy.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/transport-error", nil))
+	if response.Code != http.StatusBadGateway {
+		t.Fatalf("response status = %d, want %d", response.Code, http.StatusBadGateway)
+	}
+	logLines := strings.Split(strings.TrimSpace(logs.String()), "\n")
+	var record map[string]any
+	if err := json.Unmarshal([]byte(logLines[len(logLines)-1]), &record); err != nil {
+		t.Fatalf("decode structured request outcome %q: %v", logs.String(), err)
+	}
+	if record["outcome"] != "failure" {
+		t.Fatalf("transport error outcome = %v, want failure; log = %s", record["outcome"], logs.String())
+	}
+}
+
+func TestProxyUpstreamBadGatewayIsSuccessfulResponse(t *testing.T) {
+	var logs bytes.Buffer
+	proxy, err := NewProxy(Config{UpstreamURL: "http://upstream.invalid"}, slog.New(slog.NewJSONHandler(&logs, nil)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	proxy.upstream.Transport = roundTripFunc(func(*http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: http.StatusBadGateway,
+			Header:     make(http.Header),
+			Body:       io.NopCloser(strings.NewReader("upstream 502")),
+			Request:    httptest.NewRequest(http.MethodGet, "http://upstream.invalid/", nil),
+		}, nil
+	})
+	defer proxy.CloseIdleConnections()
+
+	response := httptest.NewRecorder()
+	proxy.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/upstream-502", nil))
+	if response.Code != http.StatusBadGateway {
+		t.Fatalf("response status = %d, want %d", response.Code, http.StatusBadGateway)
+	}
+	var record map[string]any
+	if err := json.Unmarshal(logs.Bytes(), &record); err != nil {
+		t.Fatalf("decode structured request outcome %q: %v", logs.String(), err)
+	}
+	if record["outcome"] != "success" {
+		t.Fatalf("upstream 502 outcome = %v, want success; log = %s", record["outcome"], logs.String())
+	}
+}
+
 func waitForActiveRequests(proxy *Proxy, want int64, timeout time.Duration) error {
 	deadline := time.Now().Add(timeout)
 	for proxy.ActiveRequests() != want && time.Now().Before(deadline) {
