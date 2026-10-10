@@ -67,6 +67,8 @@ func TestValidateRejectsInvalidSemantics(t *testing.T) {
 		{"empty listener address", func(c *Config) { c.Listener.Address = "" }},
 		{"malformed listener address", func(c *Config) { c.Listener.Address = "not-an-address" }},
 		{"listener port out of range", func(c *Config) { c.Listener.Address = "127.0.0.1:70000" }},
+		{"negative listener concurrency", func(c *Config) { c.Listener.MaxConcurrentRequests = -1 }},
+		{"negative body read idle timeout", func(c *Config) { c.Listener.RequestBodyReadIdleTimeout = -time.Second }},
 		{"no clusters", func(c *Config) { c.Clusters = nil }},
 		{"empty cluster id", func(c *Config) { c.Clusters[0].ID = "" }},
 		{"duplicate cluster id", func(c *Config) { c.Clusters = append(c.Clusters, c.Clusters[0]) }},

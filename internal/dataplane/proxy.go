@@ -15,9 +15,16 @@ import (
 	"time"
 )
 
+const (
+	defaultResponseHeaderTimeout  = 30 * time.Second
+	defaultMaxResponseHeaderBytes = 1 << 20
+)
+
 // Config describes the single static upstream used by the M1 data plane.
 type Config struct {
-	UpstreamURL string
+	UpstreamURL            string
+	ResponseHeaderTimeout  time.Duration
+	MaxResponseHeaderBytes int64
 }
 
 // Proxy forwards all requests to one configured upstream without buffering
@@ -37,6 +44,18 @@ type requestOutcome struct {
 
 // NewProxy creates a reverse proxy for a static HTTP or HTTPS upstream.
 func NewProxy(cfg Config, logger *slog.Logger) (*Proxy, error) {
+	if cfg.ResponseHeaderTimeout < 0 {
+		return nil, errors.New("response header timeout cannot be negative")
+	}
+	if cfg.MaxResponseHeaderBytes < 0 {
+		return nil, errors.New("max response header bytes cannot be negative")
+	}
+	if cfg.ResponseHeaderTimeout == 0 {
+		cfg.ResponseHeaderTimeout = defaultResponseHeaderTimeout
+	}
+	if cfg.MaxResponseHeaderBytes == 0 {
+		cfg.MaxResponseHeaderBytes = defaultMaxResponseHeaderBytes
+	}
 	target, err := url.Parse(cfg.UpstreamURL)
 	if err != nil {
 		return nil, fmt.Errorf("parse upstream URL: %w", err)
@@ -52,6 +71,8 @@ func NewProxy(cfg Config, logger *slog.Logger) (*Proxy, error) {
 	}
 
 	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.ResponseHeaderTimeout = cfg.ResponseHeaderTimeout
+	transport.MaxResponseHeaderBytes = cfg.MaxResponseHeaderBytes
 	p := &Proxy{logger: logger, transport: transport}
 	p.upstream = &httputil.ReverseProxy{
 		Rewrite: func(request *httputil.ProxyRequest) {

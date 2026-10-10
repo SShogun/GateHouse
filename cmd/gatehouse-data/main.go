@@ -29,11 +29,14 @@ func main() {
 }
 
 func run() error {
+	listenAddress := envOrDefault("GATEHOUSE_LISTEN_ADDR", "127.0.0.1:8080")
+	if err := dataplane.ValidateDevelopmentListenAddress(listenAddress); err != nil {
+		return fmt.Errorf("validate development listener: %w", err)
+	}
 	signalCtx, stopSignals := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stopSignals()
 
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
-	listenAddress := envOrDefault("GATEHOUSE_LISTEN_ADDR", "127.0.0.1:8080")
 	upstreamAddress := envOrDefault("GATEHOUSE_UPSTREAM_URL", "http://127.0.0.1:8081")
 	upstream, err := url.Parse(upstreamAddress)
 	if err != nil {

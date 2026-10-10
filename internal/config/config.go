@@ -51,6 +51,9 @@ func Validate(cfg Config) error {
 	if err := validateListenerAddress(cfg.Listener.Address); err != nil {
 		return fmt.Errorf("listener address: %w", err)
 	}
+	if err := cfg.Listener.Validate(); err != nil {
+		return fmt.Errorf("listener resource limits: %w", err)
+	}
 	if len(cfg.Clusters) == 0 {
 		return errors.New("at least one cluster is required")
 	}
