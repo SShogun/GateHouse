@@ -6,7 +6,7 @@
 
 A production-minded Layer 7 gateway in Go, designed around protocol correctness, safe configuration rollouts, and predictable failure behavior.
 
-**Go:** 1.26.8 · **Contracts:** Protobuf · **CI:** [GitHub Actions](https://github.com/SShogun/GateHouse/actions/workflows/ci.yml)
+**Go:** 1.26.9 · **Contracts:** Protobuf · **CI:** [GitHub Actions](https://github.com/SShogun/GateHouse/actions/workflows/ci.yml)
 
 </div>
 
@@ -72,7 +72,7 @@ The critical separation: the control plane owns durable configuration and public
 ### Requirements
 
 - Git
-- Go 1.26.8 (the `go.mod` toolchain directive is authoritative)
+- Go 1.26.9 (the `go.mod` Go version is authoritative)
 - Buf CLI 1.73.0
 - `make`
 - Network access on the first verification run to download pinned analysis tools and Buf generators

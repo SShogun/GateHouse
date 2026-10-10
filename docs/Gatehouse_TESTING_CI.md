@@ -774,3 +774,11 @@ known quarantined tests (ideally none)
 ```
 
 A green badge without the ability to reproduce commands locally is insufficient.
+
+## Historical M0 completion evidence
+
+M0 was verified by PR #4 at commit `408be0505f48f096ae1af0cd42d5279229531f72` on 2026-10-10. The [GitHub Actions run](https://github.com/SShogun/GateHouse/actions/runs/38056682768) reports `contracts`, `static`, `unit`, `race`, and `security` all successful. That commit used Go `1.26.8` from `go.mod` and Buf `1.73.0` from the CI workflow. This is historical evidence for the M0 skeleton; later toolchain security findings are tracked against M1/M2.
+
+## M1 local verification evidence
+
+The M1 fixes were verified in the dirty `codex/m1-static-http-proxy` checkout based on `c859bb8` on 2026-10-10. The project `make verify` passed with the Go `1.26.9` toolchain: vet, staticcheck, Buf lint and compatibility fixtures, generated-file cleanliness, module verification, unit tests, race tests, and govulncheck (`No vulnerabilities found`). The focused RED showed a failing `RoundTripper` response being logged as success; the fix records transport failure per request. A separate regression confirms a valid upstream HTTP 502 remains a successful proxy response. The current uncommitted M1 state has no exact-head GitHub CI result; remote verification requires the approved commit/push checkpoint.

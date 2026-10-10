@@ -2,6 +2,7 @@
 package dataplane
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -26,6 +27,12 @@ type Proxy struct {
 	transport *http.Transport
 	logger    *slog.Logger
 	active    atomic.Int64
+}
+
+type requestOutcomeKey struct{}
+
+type requestOutcome struct {
+	failure bool
 }
 
 // NewProxy creates a reverse proxy for a static HTTP or HTTPS upstream.
@@ -54,6 +61,9 @@ func NewProxy(cfg Config, logger *slog.Logger) (*Proxy, error) {
 		FlushInterval: -1,
 		Transport:     transport,
 		ErrorHandler: func(w http.ResponseWriter, r *http.Request, err error) {
+			if outcome, ok := r.Context().Value(requestOutcomeKey{}).(*requestOutcome); ok {
+				outcome.failure = true
+			}
 			p.logger.Warn("upstream request failed", "method", r.Method, "error", err)
 			http.Error(w, "bad gateway", http.StatusBadGateway)
 		},
@@ -72,6 +82,8 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	p.active.Add(1)
 	defer p.active.Add(-1)
 	started := time.Now()
+	outcome := &requestOutcome{}
+	r = r.WithContext(context.WithValue(r.Context(), requestOutcomeKey{}, outcome))
 	recorder := &statusRecorder{ResponseWriter: w}
 	defer func() {
 		if recovered := recover(); recovered != nil {
@@ -92,10 +104,14 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if status == 0 {
 			status = http.StatusOK
 		}
+		loggedOutcome := "success"
+		if outcome.failure {
+			loggedOutcome = "failure"
+		}
 		p.logger.Info("proxy request complete",
 			"method", r.Method,
 			"status", status,
-			"outcome", "success",
+			"outcome", loggedOutcome,
 			"duration", time.Since(started),
 		)
 	}()
