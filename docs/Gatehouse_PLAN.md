@@ -157,16 +157,16 @@ Create only:
 ## Gate M0
 
 ```text
-[ ] go test ./... GREEN
-[ ] go test -race ./... GREEN on current skeleton
-[ ] go vet ./... GREEN
-[ ] staticcheck ./... GREEN
-[ ] govulncheck ./... GREEN
-[ ] buf lint GREEN
-[ ] buf breaking test proven capable of failing
-[ ] buf generate is clean/reproducible
-[ ] frontend lint/typecheck test harness exists if web initialized
-[ ] CI required jobs are separate and visible
+[x] go test ./... GREEN (`make verify`)
+[x] go test -race ./... GREEN on current skeleton (`make verify`)
+[x] go vet ./... GREEN (`make verify`)
+[x] staticcheck ./... GREEN (`make verify`)
+[x] govulncheck ./... GREEN; no vulnerabilities reachable from the code (`make verify`)
+[x] buf lint GREEN (`make verify`)
+[x] buf breaking test proven capable of failing (breaking fixture rejected and compatible fixture accepted by `make compatibility-test`)
+[x] buf generate is clean/reproducible (`make verify`)
+[x] frontend lint/typecheck test harness exists if web initialized (not applicable; no web frontend initialized)
+[x] CI required jobs are separate and visible (`.github/workflows/ci.yml`)
 ```
 
 Stop. Do not build routing until the repository can protect contracts.
