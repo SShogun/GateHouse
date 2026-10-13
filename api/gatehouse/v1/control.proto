@@ -1,0 +1,111 @@
+syntax = "proto3";
+package gatehouse.v1;
+option go_package = "github.com/SShogun/GateHouse/gen/go/gatehouse/v1;gatehousev1";
+import "gatehouse/v1/config.proto";
+
+// AdminService is available only in explicit loopback development mode until M6.
+service AdminService {
+  rpc GetActiveConfig(GetActiveConfigRequest) returns (GetActiveConfigResponse);
+  rpc ValidateConfig(ValidateConfigRequest) returns (ValidateConfigResponse);
+  rpc PublishConfig(PublishConfigRequest) returns (PublishConfigResponse);
+  rpc GetRevision(GetRevisionRequest) returns (GetRevisionResponse);
+  rpc ListRevisions(ListRevisionsRequest) returns (ListRevisionsResponse);
+  rpc DiffRevisions(DiffRevisionsRequest) returns (DiffRevisionsResponse);
+  rpc Rollback(RollbackRequest) returns (RollbackResponse);
+  rpc ListInstances(ListInstancesRequest) returns (ListInstancesResponse);
+}
+
+// DataPlaneService sends complete immutable snapshots to a data-plane process.
+// The first client message registers the process; subsequent messages report
+// publication acknowledgments, validation failures, or heartbeats.
+service DataPlaneService {
+  rpc Connect(stream DataPlaneServiceConnectRequest) returns (stream DataPlaneServiceConnectResponse);
+}
+message Revision {
+  int64 revision = 1;
+  int64 parent_revision = 2;
+  string content_hash = 3;
+  GatewayConfig config = 4;
+  int64 created_at_unix_ms = 5;
+  string actor = 6;
+  string reason = 7;
+  string operation = 8;
+  int64 rollback_source_revision = 9;
+}
+message GetActiveConfigRequest {}
+message GetActiveConfigResponse { Revision revision = 1; }
+message ValidateConfigRequest { GatewayConfig config = 1; }
+message ValidateConfigResponse { string content_hash = 1; }
+// expected_parent_revision=0 permits the first publication only.
+message PublishConfigRequest {
+  int64 expected_parent_revision = 1;
+  GatewayConfig config = 2;
+  string actor = 3;
+  string reason = 4;
+}
+message PublishConfigResponse { Revision revision = 1; }
+message GetRevisionRequest { int64 revision = 1; }
+message GetRevisionResponse { Revision revision = 1; }
+// Descending keyset pagination. before_revision=0 starts at newest; limit defaults to 20, maximum 100.
+message ListRevisionsRequest { int64 before_revision = 1; int32 limit = 2; }
+message ListRevisionsResponse { repeated Revision revisions = 1; int64 next_before_revision = 2; }
+message DiffRevisionsRequest { int64 from_revision = 1; int64 to_revision = 2; }
+// Component IDs are sorted. Comparisons include list ordering within each component.
+message DiffRevisionsResponse {
+  bool listener_changed = 1;
+  repeated string added_route_ids = 2;
+  repeated string removed_route_ids = 3;
+  repeated string changed_route_ids = 4;
+  repeated string added_cluster_ids = 5;
+  repeated string removed_cluster_ids = 6;
+  repeated string changed_cluster_ids = 7;
+  bool route_order_changed = 8;
+  bool cluster_order_changed = 9;
+  bool schema_version_changed = 10;
+}
+message RollbackRequest {
+  int64 expected_parent_revision = 1;
+  int64 source_revision = 2;
+  string actor = 3;
+  string reason = 4;
+}
+message RollbackResponse { Revision revision = 1; }
+// Instance reporting is implemented with the configuration stream in Part 2.
+// Ascending keyset pagination. before_instance_id is exclusive; limit defaults to 50, maximum 100.
+message ListInstancesRequest { string before_instance_id = 1; int32 limit = 2; }
+message ListInstancesResponse { repeated InstanceStatus instances = 1; string next_before_instance_id = 2; }
+message InstanceStatus {
+  string instance_id = 1;
+  string boot_id = 2;
+  string build = 3;
+  bool connected = 4;
+  int64 active_revision = 5;
+  string active_hash = 6;
+  int64 last_heartbeat_unix_ms = 7;
+  string last_nack = 8;
+}
+message DataPlaneServiceConnectRequest {
+  string instance_id = 1;
+  string boot_id = 2;
+  oneof event {
+    DataPlaneRegistration registration = 3;
+    ConfigAck ack = 4;
+    ConfigNack nack = 5;
+    DataPlaneHeartbeat heartbeat = 6;
+  }
+}
+message DataPlaneRegistration {
+  string build = 1;
+  int64 active_revision = 2;
+  string active_hash = 3;
+}
+message ConfigAck { int64 revision = 1; string content_hash = 2; }
+message ConfigNack {
+  int64 revision = 1;
+  string content_hash = 2;
+  string reason = 3;
+  int64 active_revision = 4;
+  string active_hash = 5;
+}
+message DataPlaneHeartbeat { int64 active_revision = 1; string active_hash = 2; }
+message DataPlaneServiceConnectResponse { Revision revision = 1; }
