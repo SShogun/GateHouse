@@ -180,43 +180,60 @@ func TestPostgresPublicationIsAtomicAndOptimistic(t *testing.T) {
 		t.Fatalf("audit count=%d, want 3", auditCount)
 	}
 
-	// Fail after the revision and active-pointer writes. The transaction must roll back both.
-	if _, err = pool.Exec(ctx, `CREATE FUNCTION reject_audit() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'injected audit failure'; END $$`); err != nil {
-		t.Fatal(err)
+	// Inject failure at each write boundary. Every failed publication must leave
+	// the active pointer, immutable history, and audit log unchanged.
+	failurePoints := []struct {
+		name, table, function, trigger, message string
+	}{
+		{"revision insert", "config_revisions", "reject_revision_insert", "reject_revision_insert", "injected revision insert failure"},
+		{"active pointer update", "active_config", "reject_active_update", "reject_active_update", "injected active pointer update failure"},
+		{"audit insert", "config_audit", "reject_audit_insert", "reject_audit_insert", "injected audit insert failure"},
 	}
-	if _, err = pool.Exec(ctx, `CREATE TRIGGER reject_audit_insert BEFORE INSERT ON config_audit FOR EACH ROW EXECUTE FUNCTION reject_audit()`); err != nil {
-		t.Fatal(err)
-	}
-	_, err = store.Publish(ctx, revision.Publish{ExpectedParent: rollback.Number, Hash: hash2, Config: secondConfig, Actor: "integration", Reason: "must roll back", Operation: "publish"})
-	if err == nil {
-		t.Fatal("publication unexpectedly succeeded after audit insert failure")
-	}
-	after, err := store.Active(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if after.Number != rollback.Number || after.Hash != rollback.Hash {
-		t.Fatalf("failed publication changed active revision: %#v", after)
-	}
-	history, err = store.List(ctx, 0, 10)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(history) != 3 {
-		t.Fatalf("failed transaction left revision behind: history count=%d", len(history))
-	}
-	auditCount = 0
-	if err = pool.QueryRow(ctx, "SELECT count(*) FROM config_audit").Scan(&auditCount); err != nil {
-		t.Fatal(err)
-	}
-	if auditCount != 3 {
-		t.Fatalf("failed transaction left audit row: count=%d", auditCount)
-	}
-	if _, err = pool.Exec(ctx, "DROP TRIGGER reject_audit_insert ON config_audit"); err != nil {
-		t.Fatal(err)
-	}
-	if _, err = pool.Exec(ctx, "DROP FUNCTION reject_audit()"); err != nil {
-		t.Fatal(err)
+	for _, failurePoint := range failurePoints {
+		t.Run("transaction rollback on "+failurePoint.name, func(t *testing.T) {
+			createFunction := fmt.Sprintf(`CREATE FUNCTION %s() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION '%s'; END $$`, failurePoint.function, failurePoint.message)
+			if _, err := pool.Exec(ctx, createFunction); err != nil {
+				t.Fatal(err)
+			}
+			createTrigger := fmt.Sprintf("CREATE TRIGGER %s BEFORE %s ON %s FOR EACH ROW EXECUTE FUNCTION %s()", failurePoint.trigger, map[string]string{"config_revisions": "INSERT", "active_config": "UPDATE", "config_audit": "INSERT"}[failurePoint.table], failurePoint.table, failurePoint.function)
+			if _, err := pool.Exec(ctx, createTrigger); err != nil {
+				t.Fatal(err)
+			}
+			defer func() {
+				if _, err := pool.Exec(ctx, fmt.Sprintf("DROP TRIGGER %s ON %s", failurePoint.trigger, failurePoint.table)); err != nil {
+					t.Errorf("drop injected failure trigger: %v", err)
+				}
+				if _, err := pool.Exec(ctx, fmt.Sprintf("DROP FUNCTION %s()", failurePoint.function)); err != nil {
+					t.Errorf("drop injected failure function: %v", err)
+				}
+			}()
+
+			_, err := store.Publish(ctx, revision.Publish{ExpectedParent: rollback.Number, Hash: hash2, Config: secondConfig, Actor: "integration", Reason: "must roll back", Operation: "publish"})
+			if err == nil || !strings.Contains(err.Error(), failurePoint.message) {
+				t.Fatalf("publication error=%v, want injected %s failure", err, failurePoint.name)
+			}
+			after, err := store.Active(ctx)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if after.Number != rollback.Number || after.Hash != rollback.Hash {
+				t.Fatalf("failed publication changed active revision: %#v", after)
+			}
+			failedHistory, err := store.List(ctx, 0, 10)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(failedHistory) != 3 {
+				t.Fatalf("failed transaction left revision behind: history count=%d", len(failedHistory))
+			}
+			var failedAuditCount int64
+			if err := pool.QueryRow(ctx, "SELECT count(*) FROM config_audit").Scan(&failedAuditCount); err != nil {
+				t.Fatal(err)
+			}
+			if failedAuditCount != 3 {
+				t.Fatalf("failed transaction left audit row: count=%d", failedAuditCount)
+			}
+		})
 	}
 
 	// A client pointed at an unavailable endpoint cannot alter the durable

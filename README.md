@@ -36,6 +36,7 @@ The current implementation provides:
 - a static HTTP reverse proxy and compiled in-memory route/cluster runtime, with bounded server defaults and graceful shutdown;
 - an opt-in dynamic mode that receives complete config snapshots over gRPC, validates and compiles candidates before atomic activation, and serves its last-known-good snapshot through control-plane outages;
 - data-plane registration, ACK/NACK, heartbeat, reconnect, readiness, and connection-staleness reporting;
+- Admin instance `Connected` status reflects a live stream owned by the current control-plane process and matching the stored boot ID; persisted instance fields remain the latest reported metadata;
 - deterministic route matching, endpoint selection, and optional scheduled HTTP health checks;
 - SIGINT/SIGTERM handling, root cancellation, and bounded shutdown coordination;
 - a `gatehouse.v1` Protobuf workspace with committed Go and TypeScript generated output;

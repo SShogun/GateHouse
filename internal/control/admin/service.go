@@ -42,7 +42,8 @@ type Service struct {
 }
 
 type dataPlaneSession struct {
-	done chan struct{}
+	done   chan struct{}
+	bootID string
 }
 
 func New(store revision.Store) (*Service, error) {
@@ -182,10 +183,14 @@ func (s *Service) ListInstances(ctx context.Context, req *pb.ListInstancesReques
 		return nil, apiError(err)
 	}
 	response := &pb.ListInstancesResponse{}
+	s.sessionMu.Lock()
+	defer s.sessionMu.Unlock()
 	for _, instance := range instances {
+		session := s.sessions[instance.ID]
+		connected := session != nil && session.bootID == instance.BootID
 		response.Instances = append(response.Instances, &pb.InstanceStatus{
 			InstanceId: instance.ID, BootId: instance.BootID, Build: instance.Build,
-			Connected: instance.Connected, ActiveRevision: instance.ActiveRevision,
+			Connected: connected, ActiveRevision: instance.ActiveRevision,
 			ActiveHash: instance.ActiveHash, LastHeartbeatUnixMs: instance.LastHeartbeat.UnixMilli(),
 			LastNack: instance.LastNACK,
 		})

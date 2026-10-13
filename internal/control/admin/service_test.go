@@ -19,6 +19,7 @@ type memoryStore struct {
 	active         revision.Record
 	records        map[int64]revision.Record
 	instances      []revision.Instance
+	instanceErr    error
 	publishErr     error
 	published      revision.Publish
 	listBefore     int64
@@ -99,6 +100,9 @@ func (s *memoryStore) Publish(_ context.Context, p revision.Publish) (revision.R
 func (s *memoryStore) UpsertInstance(_ context.Context, instance revision.Instance) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.instanceErr != nil {
+		return s.instanceErr
+	}
 	for index := range s.instances {
 		if s.instances[index].ID == instance.ID {
 			s.instances[index] = instance
@@ -107,6 +111,104 @@ func (s *memoryStore) UpsertInstance(_ context.Context, instance revision.Instan
 	}
 	s.instances = append(s.instances, instance)
 	return nil
+}
+
+func TestListInstancesConnectedRequiresCurrentBootSession(t *testing.T) {
+	stored := revision.Instance{
+		ID: "dp-a", BootID: "boot-old", Build: "release-1", Connected: true,
+		ActiveRevision: 7, ActiveHash: "active-hash", LastHeartbeat: time.Unix(20, 0), LastNACK: "last failure",
+	}
+	st := &memoryStore{instances: []revision.Instance{stored}}
+	s := newService(t, st)
+
+	listed, err := s.ListInstances(context.Background(), &pb.ListInstancesRequest{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := listed.Instances[0]
+	if got.Connected {
+		t.Fatal("orphaned persisted instance was reported connected without a live process session")
+	}
+	if got.BootId != stored.BootID || got.Build != stored.Build || got.ActiveRevision != stored.ActiveRevision || got.ActiveHash != stored.ActiveHash || got.LastHeartbeatUnixMs != stored.LastHeartbeat.UnixMilli() || got.LastNack != stored.LastNACK {
+		t.Fatalf("disconnected projection lost persisted metadata: got=%+v", got)
+	}
+
+	live := stored
+	live.BootID = "boot-live"
+	if _, err := s.registerInstance(live); err != nil {
+		t.Fatal(err)
+	}
+	listed, err = s.ListInstances(context.Background(), &pb.ListInstancesRequest{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !listed.Instances[0].Connected {
+		t.Fatal("matching live instance and boot session was reported disconnected")
+	}
+
+	st.mu.Lock()
+	st.instances[0].BootID = "boot-stale-row"
+	st.instances[0].Connected = true
+	st.mu.Unlock()
+	listed, err = s.ListInstances(context.Background(), &pb.ListInstancesRequest{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if listed.Instances[0].Connected {
+		t.Fatalf("live session for boot %q made stored boot %q appear connected", live.BootID, listed.Instances[0].BootId)
+	}
+}
+
+func TestListInstancesReportsDisconnectedWhenDisconnectPersistenceFails(t *testing.T) {
+	instance := revision.Instance{ID: "dp-a", BootID: "boot-a", Connected: true, ActiveRevision: 4, LastHeartbeat: time.Unix(30, 0)}
+	st := &memoryStore{}
+	s := newService(t, st)
+	session, err := s.registerInstance(instance)
+	if err != nil {
+		t.Fatal(err)
+	}
+	st.instanceErr = errors.New("database unavailable")
+	lastNACK := ""
+	s.disconnectInstance(session, &instance, &lastNACK)
+
+	listed, err := s.ListInstances(context.Background(), &pb.ListInstancesRequest{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if listed.Instances[0].Connected {
+		t.Fatal("failed disconnect write left an instance reported connected after its session ended")
+	}
+	if listed.Instances[0].ActiveRevision != instance.ActiveRevision {
+		t.Fatalf("disconnect failure discarded last reported metadata: %+v", listed.Instances[0])
+	}
+}
+
+func TestOldSessionCleanupCannotDisconnectReplacement(t *testing.T) {
+	st := &memoryStore{}
+	s := newService(t, st)
+	oldInstance := revision.Instance{ID: "dp-a", BootID: "boot-old", Connected: true}
+	oldSession, err := s.registerInstance(oldInstance)
+	if err != nil {
+		t.Fatal(err)
+	}
+	newInstance := revision.Instance{ID: "dp-a", BootID: "boot-new", Connected: true}
+	newSession, err := s.registerInstance(newInstance)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lastNACK := ""
+	s.disconnectInstance(oldSession, &oldInstance, &lastNACK)
+
+	listed, err := s.ListInstances(context.Background(), &pb.ListInstancesRequest{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(listed.Instances) != 1 || !listed.Instances[0].Connected || listed.Instances[0].BootId != newInstance.BootID {
+		t.Fatalf("old session cleanup affected replacement session: %+v", listed.Instances)
+	}
+	if s.sessions[newInstance.ID] != newSession {
+		t.Fatal("replacement session no longer owns the instance")
+	}
 }
 
 func validCandidate() *pb.GatewayConfig {

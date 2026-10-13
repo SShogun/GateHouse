@@ -93,6 +93,52 @@ func TestEncodeCandidateRejectsUnsupportedOrInvalidInput(t *testing.T) {
 	}
 }
 
+func FuzzConfigDecodeValidate(f *testing.F) {
+	valid := &pb.GatewayConfig{
+		SchemaVersion: 1,
+		Listener:      &pb.Listener{Address: "127.0.0.1:8080"},
+		Clusters: []*pb.Cluster{{
+			Id: "backend", Policy: pb.SelectionPolicy_SELECTION_POLICY_ROUND_ROBIN,
+			Endpoints: []*pb.Endpoint{{Id: "one", Address: "http://127.0.0.1:9000", Weight: 1}},
+		}},
+		Routes: []*pb.Route{{Id: "root", Path: "/", PathType: pb.PathType_PATH_TYPE_PREFIX, ClusterId: "backend"}},
+	}
+	validBytes, err := proto.Marshal(valid)
+	if err != nil {
+		f.Fatal(err)
+	}
+	f.Add(validBytes)
+	f.Add([]byte{})
+	f.Add([]byte{0xff})
+	f.Add([]byte{0x98, 0x06, 0x01}) // unknown protobuf field
+
+	f.Fuzz(func(t *testing.T, data []byte) {
+		if len(data) > MaxSnapshotBytes {
+			return
+		}
+		candidate := new(pb.GatewayConfig)
+		if err := proto.Unmarshal(data, candidate); err != nil {
+			return
+		}
+		canonical, hash, err := EncodeCandidate(candidate)
+		if err != nil {
+			return
+		}
+
+		var decoded pb.GatewayConfig
+		if err := proto.Unmarshal(canonical, &decoded); err != nil {
+			t.Fatalf("EncodeCandidate returned invalid protobuf: %v", err)
+		}
+		canonicalAgain, hashAgain, err := EncodeCandidate(&decoded)
+		if err != nil {
+			t.Fatalf("EncodeCandidate rejected its canonical output: %v", err)
+		}
+		if !bytes.Equal(canonical, canonicalAgain) || hash != hashAgain {
+			t.Fatal("canonical config bytes or hash changed after decode and revalidation")
+		}
+	})
+}
+
 func configEqual(a, b Config) bool {
 	pa, ea := ToProto(a)
 	pb, eb := ToProto(b)

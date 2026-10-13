@@ -26,7 +26,9 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/status"
 )
 
 func TestControlPlaneRestartKeepsDataPlaneRequestAndRecoversRevision(t *testing.T) {
@@ -155,20 +157,25 @@ func TestControlPlaneRestartKeepsDataPlaneRequestAndRecoversRevision(t *testing.
 		t.Fatal(err)
 	}
 	defer manager.Close()
-	dataplaneClient, err := controlclient.NewControlClient(controlclient.ControlClientConfig{
-		Endpoint: address, InstanceID: "restart-test-dp", BootID: "boot-restart-test", Build: "integration",
-		Manager: manager, HeartbeatInterval: time.Second, ReconnectMin: 50 * time.Millisecond, ReconnectMax: 100 * time.Millisecond,
-		Logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
-	})
-	if err != nil {
-		t.Fatal(err)
+	startDataPlaneClient := func(bootID string) (context.CancelFunc, chan struct{}) {
+		t.Helper()
+		dataplaneClient, clientErr := controlclient.NewControlClient(controlclient.ControlClientConfig{
+			Endpoint: address, InstanceID: "restart-test-dp", BootID: bootID, Build: "integration",
+			Manager: manager, HeartbeatInterval: time.Second, ReconnectMin: 50 * time.Millisecond, ReconnectMax: 100 * time.Millisecond,
+			Logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
+		})
+		if clientErr != nil {
+			t.Fatal(clientErr)
+		}
+		clientCtx, cancel := context.WithCancel(context.Background())
+		done := make(chan struct{})
+		go func() {
+			defer close(done)
+			_ = dataplaneClient.Run(clientCtx)
+		}()
+		return cancel, done
 	}
-	clientCtx, cancelClient := context.WithCancel(context.Background())
-	clientDone := make(chan struct{})
-	go func() {
-		defer close(clientDone)
-		_ = dataplaneClient.Run(clientCtx)
-	}()
+	cancelClient, clientDone := startDataPlaneClient("boot-restart-test")
 	defer func() {
 		cancelClient()
 		select {
@@ -200,12 +207,12 @@ func TestControlPlaneRestartKeepsDataPlaneRequestAndRecoversRevision(t *testing.
 	if err := control.Wait(); err == nil {
 		t.Fatal("control-plane process unexpectedly exited successfully after forced restart")
 	}
+	// Stop the client while its control plane is down so this process remains
+	// absent after startup and exercises the durable orphaned row.
+	cancelClient()
+	waitForSignal(t, ctx, clientDone, "data-plane client shutdown after control-plane crash")
 	restartAt := time.Now()
 	control = startControl()
-	waitUntil(t, ctx, func() bool {
-		state := manager.Status()
-		return state.Connected && state.Revision == responseA.Revision.Revision && state.LastHeartbeat.After(restartAt)
-	})
 	var instances *pb.ListInstancesResponse
 	waitUntil(t, ctx, func() bool {
 		requestCtx, requestCancel := context.WithTimeout(ctx, 250*time.Millisecond)
@@ -215,22 +222,63 @@ func TestControlPlaneRestartKeepsDataPlaneRequestAndRecoversRevision(t *testing.
 			return false
 		}
 		instances = response
-		return response.Instances[0].Connected && response.Instances[0].ActiveRevision == responseA.Revision.Revision && response.Instances[0].LastHeartbeatUnixMs >= restartAt.UnixMilli()
+		return !response.Instances[0].Connected
+	})
+	if instances.Instances[0].BootId != "boot-restart-test" || instances.Instances[0].ActiveRevision != responseA.Revision.Revision {
+		t.Fatalf("offline instance metadata was not preserved after control-plane restart: %+v", instances.Instances[0])
+	}
+	cancelClient, clientDone = startDataPlaneClient("boot-reconnected")
+	waitUntil(t, ctx, func() bool {
+		requestCtx, requestCancel := context.WithTimeout(ctx, 250*time.Millisecond)
+		defer requestCancel()
+		response, listErr := adminClient.ListInstances(requestCtx, &pb.ListInstancesRequest{Limit: 10})
+		if listErr != nil || len(response.Instances) != 1 {
+			return false
+		}
+		instances = response
+		return response.Instances[0].Connected && response.Instances[0].BootId == "boot-reconnected" && response.Instances[0].ActiveRevision == responseA.Revision.Revision && response.Instances[0].LastHeartbeatUnixMs >= restartAt.UnixMilli()
 	})
 	if len(instances.Instances) != 1 || !instances.Instances[0].Connected || instances.Instances[0].ActiveRevision != responseA.Revision.Revision {
 		t.Fatalf("instance did not reconnect on durable revision: %+v", instances.Instances)
 	}
 
+	// End the primary session cleanly before testing an outage on a separate
+	// stream, so the outage row is the only disconnect write under test.
+	cancelClient()
+	waitForSignal(t, ctx, clientDone, "data-plane client shutdown before database outage")
+	waitUntil(t, ctx, func() bool {
+		requestCtx, requestCancel := context.WithTimeout(ctx, 250*time.Millisecond)
+		defer requestCancel()
+		response, listErr := adminClient.ListInstances(requestCtx, &pb.ListInstancesRequest{Limit: 10})
+		return listErr == nil && len(response.Instances) == 1 && !response.Instances[0].Connected
+	})
+	outageStreamCtx, cancelOutageStream := context.WithCancel(ctx)
+	defer cancelOutageStream()
+	outageStream := registerDataPlaneStream(t, outageStreamCtx, pb.NewDataPlaneServiceClient(connection), "outage-test-dp", "boot-outage-1", responseA.Revision.Revision, responseA.Revision.ContentHash)
+
 	configB := restartCandidate(upstreamB.URL)
 	databaseProxy.SetAvailable(false)
-	outageCtx, cancelOutage := context.WithTimeout(ctx, 2*time.Second)
+	outageCtx, cancelPublish := context.WithTimeout(ctx, 2*time.Second)
 	_, outageErr := adminClient.PublishConfig(outageCtx, &pb.PublishConfigRequest{ExpectedParentRevision: responseA.Revision.Revision, Config: configB, Actor: "restart-integration", Reason: "database outage"})
-	cancelOutage()
+	cancelPublish()
 	if outageErr == nil {
 		t.Fatal("publication unexpectedly succeeded while PostgreSQL was unavailable")
 	}
 	if manager.Status().Revision != responseA.Revision.Revision {
 		t.Fatalf("database outage changed active data-plane revision: %+v", manager.Status())
+	}
+	streamEndCtx, cancelStreamEnd := context.WithTimeout(ctx, 5*time.Second)
+	waitForStreamFailure(t, streamEndCtx, outageStream)
+	cancelStreamEnd()
+	var persistedConnected bool
+	var persistedBoot string
+	var persistedRevision int64
+	instanceTable := (pgx.Identifier{schema, "data_plane_instances"}).Sanitize()
+	if err := adminPool.QueryRow(ctx, fmt.Sprintf(`SELECT connected,boot_id,active_revision FROM %s WHERE instance_id=$1`, instanceTable), "outage-test-dp").Scan(&persistedConnected, &persistedBoot, &persistedRevision); err != nil {
+		t.Fatal(err)
+	}
+	if !persistedConnected || persistedBoot != "boot-outage-1" || persistedRevision != responseA.Revision.Revision {
+		t.Fatalf("failed outage disconnect unexpectedly changed durable status: connected=%t boot=%q revision=%d", persistedConnected, persistedBoot, persistedRevision)
 	}
 	duringOutage := httptest.NewRecorder()
 	manager.ServeHTTP(duringOutage, httptest.NewRequest(http.MethodGet, "http://gateway/", nil))
@@ -243,6 +291,37 @@ func TestControlPlaneRestartKeepsDataPlaneRequestAndRecoversRevision(t *testing.
 	default:
 	}
 	databaseProxy.SetAvailable(true)
+	var recoveredInstance *pb.InstanceStatus
+	waitUntil(t, ctx, func() bool {
+		requestCtx, requestCancel := context.WithTimeout(ctx, 250*time.Millisecond)
+		defer requestCancel()
+		response, listErr := adminClient.ListInstances(requestCtx, &pb.ListInstancesRequest{Limit: 10})
+		if listErr != nil || len(response.Instances) != 2 {
+			return false
+		}
+		recoveredInstance = findInstanceStatus(response.Instances, "outage-test-dp")
+		return recoveredInstance != nil && !recoveredInstance.Connected
+	})
+	if recoveredInstance.BootId != "boot-outage-1" || recoveredInstance.ActiveRevision != responseA.Revision.Revision {
+		t.Fatalf("instance metadata changed while database outage disconnect write failed: %+v", recoveredInstance)
+	}
+	reconnectStreamCtx, cancelReconnectStream := context.WithCancel(ctx)
+	defer cancelReconnectStream()
+	registerDataPlaneStream(t, reconnectStreamCtx, pb.NewDataPlaneServiceClient(connection), "outage-test-dp", "boot-outage-2", responseA.Revision.Revision, responseA.Revision.ContentHash)
+	waitUntil(t, ctx, func() bool {
+		requestCtx, requestCancel := context.WithTimeout(ctx, 250*time.Millisecond)
+		defer requestCancel()
+		response, listErr := adminClient.ListInstances(requestCtx, &pb.ListInstancesRequest{Limit: 10})
+		if listErr != nil || len(response.Instances) != 2 {
+			return false
+		}
+		instance := findInstanceStatus(response.Instances, "outage-test-dp")
+		return instance != nil && instance.Connected && instance.BootId == "boot-outage-2"
+	})
+	cancelClient, clientDone = startDataPlaneClient("boot-after-outage")
+	waitUntil(t, ctx, func() bool {
+		return manager.Status().Connected && manager.Status().Revision == responseA.Revision.Revision
+	})
 	responseB := publishWithRetry(t, ctx, adminClient, responseA.Revision.Revision, configB)
 	waitUntil(t, ctx, func() bool { return manager.Status().Revision == responseB.Revision.Revision })
 	newResponse := httptest.NewRecorder()
@@ -260,10 +339,91 @@ func TestControlPlaneRestartKeepsDataPlaneRequestAndRecoversRevision(t *testing.
 		t.Fatal("in-flight request did not finish after control-plane restart")
 	}
 
+	cancelReconnectStream()
+	waitUntil(t, ctx, func() bool {
+		requestCtx, requestCancel := context.WithTimeout(ctx, 250*time.Millisecond)
+		defer requestCancel()
+		response, listErr := adminClient.ListInstances(requestCtx, &pb.ListInstancesRequest{Limit: 10})
+		if listErr != nil || len(response.Instances) != 2 {
+			return false
+		}
+		instance := findInstanceStatus(response.Instances, "outage-test-dp")
+		return instance != nil && !instance.Connected
+	})
 	cancelClient()
-	<-clientDone
+	waitForSignal(t, ctx, clientDone, "final data-plane client shutdown")
 	stopControl(control)
 	control = nil
+}
+
+func registerDataPlaneStream(t *testing.T, ctx context.Context, client pb.DataPlaneServiceClient, instanceID, bootID string, activeRevision int64, activeHash string) grpc.BidiStreamingClient[pb.DataPlaneServiceConnectRequest, pb.DataPlaneServiceConnectResponse] {
+	t.Helper()
+	stream, err := client.Connect(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	registration := &pb.DataPlaneServiceConnectRequest{
+		InstanceId: instanceID,
+		BootId:     bootID,
+		Event: &pb.DataPlaneServiceConnectRequest_Registration{Registration: &pb.DataPlaneRegistration{
+			Build: "integration", ActiveRevision: activeRevision, ActiveHash: activeHash,
+		}},
+	}
+	if err := stream.Send(registration); err != nil {
+		t.Fatal(err)
+	}
+	response, err := stream.Recv()
+	if err != nil {
+		t.Fatalf("receive initial config for %s/%s: %v", instanceID, bootID, err)
+	}
+	if response.GetRevision() == nil || response.GetRevision().GetRevision() != activeRevision || response.GetRevision().GetContentHash() != activeHash {
+		t.Fatalf("unexpected initial config for %s/%s: %+v", instanceID, bootID, response)
+	}
+	if err := stream.Send(&pb.DataPlaneServiceConnectRequest{
+		InstanceId: instanceID,
+		BootId:     bootID,
+		Event: &pb.DataPlaneServiceConnectRequest_Ack{Ack: &pb.ConfigAck{
+			Revision: activeRevision, ContentHash: activeHash,
+		}},
+	}); err != nil {
+		t.Fatalf("acknowledge initial config for %s/%s: %v", instanceID, bootID, err)
+	}
+	return stream
+}
+
+func waitForStreamFailure(t *testing.T, ctx context.Context, stream grpc.BidiStreamingClient[pb.DataPlaneServiceConnectRequest, pb.DataPlaneServiceConnectResponse]) {
+	t.Helper()
+	result := make(chan error, 1)
+	go func() {
+		_, err := stream.Recv()
+		result <- err
+	}()
+	select {
+	case err := <-result:
+		if status.Code(err) != codes.Unavailable {
+			t.Fatalf("control-plane stream ended with %v, want Unavailable for database failure", err)
+		}
+	case <-ctx.Done():
+		t.Fatalf("control-plane stream did not terminate after database failure: %v", ctx.Err())
+	}
+}
+
+func waitForSignal(t *testing.T, ctx context.Context, signal <-chan struct{}, description string) {
+	t.Helper()
+	select {
+	case <-signal:
+	case <-ctx.Done():
+		t.Fatalf("%s did not complete before the test deadline: %v", description, ctx.Err())
+	}
+}
+
+func findInstanceStatus(instances []*pb.InstanceStatus, id string) *pb.InstanceStatus {
+	for _, instance := range instances {
+		if instance.GetInstanceId() == id {
+			return instance
+		}
+	}
+	return nil
 }
 
 func restartCandidate(upstream string) *pb.GatewayConfig {

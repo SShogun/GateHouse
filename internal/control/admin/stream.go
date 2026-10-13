@@ -130,7 +130,7 @@ func (s *Service) Connect(stream grpc.BidiStreamingServer[pb.DataPlaneServiceCon
 func (s *Service) registerInstance(instance revision.Instance) (*dataPlaneSession, error) {
 	s.sessionMu.Lock()
 	defer s.sessionMu.Unlock()
-	session := &dataPlaneSession{done: make(chan struct{})}
+	session := &dataPlaneSession{done: make(chan struct{}), bootID: instance.BootID}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	if err := s.instances.UpsertInstance(ctx, instance); err != nil {
