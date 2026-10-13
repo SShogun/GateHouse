@@ -10,7 +10,7 @@ A production-minded Layer 7 gateway in Go, designed around protocol correctness,
 
 </div>
 
-> **Project state: M2 data plane plus M3 Parts 1–3 implemented; local verification passed and the user confirmed exact-head hosted CI is green on `ef5f68e`.** M3 has typed configuration/Admin protobufs, PostgreSQL revision storage, a loopback-only development control plane, config streaming, instance status, and opt-in dynamic data-plane activation with last-known-good snapshots. Part 3 adds database integration and recovery tests, an executable restart scenario, and bounded 1,000-revision churn coverage. Local PostgreSQL verification used a disposable PostgreSQL 18.6 instance; CI runs the suite against PostgreSQL 16.
+> **Project state: M2 data plane plus M3 Parts 1–3 implemented; local verification passed and exact-head hosted CI is green on `67c46cb`.** M3 has typed configuration/Admin protobufs, PostgreSQL revision storage, a loopback-only development control plane, config streaming, instance status, and opt-in dynamic data-plane activation with last-known-good snapshots. Part 3 adds database integration and recovery tests, an executable restart scenario, and bounded 1,000-revision churn coverage. Local PostgreSQL verification used a disposable PostgreSQL 18.6 instance; CI runs the suite against PostgreSQL 16.
 
 [What exists](#what-works-today) · [Run checks](#try-the-current-foundation) · [Target architecture](#target-architecture) · [Roadmap](#roadmap) · [Docs](#repository-map)
 

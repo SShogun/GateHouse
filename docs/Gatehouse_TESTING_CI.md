@@ -841,4 +841,4 @@ After these follow-ups, pinned Go `1.26.9` `make verify` passed again with Postg
 
 ## M3 exact-head hosted CI
 
-The user confirmed that all hosted CI checks passed after the workflow was broadened to run on every branch push and commit `ef5f68ee1665e5916105adc8901253d3b94fa904` was pushed to `codex/m3-control-plane` on 2026-10-13. This closes the exact-head hosted CI gate. Run IDs and URLs were not captured. A follow-up status lookup from this environment was unavailable (`gh run list` could not connect to GitHub; the combined-status API returned no status rows), so the green result is recorded as user-confirmed rather than independently fetched here.
+GitHub Actions run [#25](https://github.com/SShogun/GateHouse/actions/runs/38424816123) completed successfully for `codex/m3-control-plane` at exact head `67c46cb7819d6c90a28c285453eb23f51e4eae75` on 2026-10-13. All six jobs passed: contracts, security, race, unit, static, and PostgreSQL integration. This closes the exact-head hosted CI gate.
