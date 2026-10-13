@@ -90,6 +90,14 @@ func TestPostgresPublicationIsAtomicAndOptimistic(t *testing.T) {
 	if _, err = store.Active(ctx); !errors.Is(err, revision.ErrNotFound) {
 		t.Fatalf("Active() before first publication error=%v, want ErrNotFound", err)
 	}
+	invalid := integrationCandidate("invalid")
+	invalid.Routes[0].ClusterId = "missing-cluster"
+	if _, err = store.Publish(ctx, revision.Publish{ExpectedParent: 0, Hash: strings.Repeat("0", 64), Config: invalid, Actor: "integration", Operation: "publish"}); err == nil {
+		t.Fatal("invalid publication unexpectedly succeeded")
+	}
+	if revisions, listErr := store.List(ctx, 0, 10); listErr != nil || len(revisions) != 0 {
+		t.Fatalf("invalid publication changed revision history: revisions=%d err=%v", len(revisions), listErr)
+	}
 
 	candidate := integrationCandidate("one")
 	_, hash, err := config.EncodeCandidate(candidate)
@@ -203,6 +211,44 @@ func TestPostgresPublicationIsAtomicAndOptimistic(t *testing.T) {
 	}
 	if auditCount != 3 {
 		t.Fatalf("failed transaction left audit row: count=%d", auditCount)
+	}
+	if _, err = pool.Exec(ctx, "DROP TRIGGER reject_audit_insert ON config_audit"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = pool.Exec(ctx, "DROP FUNCTION reject_audit()"); err != nil {
+		t.Fatal(err)
+	}
+
+	// A client pointed at an unavailable endpoint cannot alter the durable
+	// active revision. Restoring the valid connection still allows publication.
+	offlineConfig := isolatedConfig.Copy()
+	offlineConfig.ConnConfig.Host = "127.0.0.1"
+	offlineConfig.ConnConfig.Port = 1
+	offlineConfig.MaxConnIdleTime = 100 * time.Millisecond
+	offlinePool, poolErr := pgxpool.NewWithConfig(ctx, offlineConfig)
+	if poolErr != nil {
+		t.Fatal(poolErr)
+	}
+	offlineStore, storeErr := NewPostgres(offlinePool)
+	if storeErr != nil {
+		offlinePool.Close()
+		t.Fatal(storeErr)
+	}
+	if _, unavailableErr := offlineStore.Active(ctx); unavailableErr == nil {
+		offlinePool.Close()
+		t.Fatal("unavailable PostgreSQL endpoint unexpectedly returned active config")
+	}
+	offlinePool.Close()
+	stillActive, err := store.Active(ctx)
+	if err != nil || stillActive.Number != rollback.Number || stillActive.Hash != rollback.Hash {
+		t.Fatalf("unavailable endpoint changed durable active revision: active=%+v err=%v", stillActive, err)
+	}
+	recovered, err := store.Publish(ctx, revision.Publish{ExpectedParent: rollback.Number, Hash: hash2, Config: secondConfig, Actor: "integration", Reason: "after database recovery", Operation: "publish"})
+	if err != nil {
+		t.Fatalf("publication after PostgreSQL recovery: %v", err)
+	}
+	if recovered.Number <= rollback.Number || recovered.Parent != rollback.Number {
+		t.Fatalf("recovery publication did not extend durable history: %#v", recovered)
 	}
 }
 

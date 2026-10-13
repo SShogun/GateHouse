@@ -2,16 +2,20 @@ package gateway
 
 import (
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"runtime"
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	pb "github.com/SShogun/GateHouse/gen/go/gatehouse/v1"
 	"github.com/SShogun/GateHouse/internal/config"
+	"google.golang.org/protobuf/proto"
 )
 
 func TestManagerWaitsForInitialSnapshotAndKeepsLastGood(t *testing.T) {
@@ -199,6 +203,71 @@ func TestManagerRetainsClusterHealthAcrossABATransitionWithInflightRequest(t *te
 	<-oldDone
 	if oldResponse.Body.String() != "two" {
 		t.Fatalf("in-flight A request returned %q", oldResponse.Body.String())
+	}
+}
+
+func TestManagerBoundsHealthRuntimeAcross1000Revisions(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) }))
+	defer upstream.Close()
+	manager, err := NewManager(config.Listener{Address: "127.0.0.1:8080"}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	candidate := managerCandidate("127.0.0.1:8080", upstream.URL)
+	candidate.Clusters[0].HealthCheck = &pb.HealthCheck{Path: "/ready", IntervalNs: int64(time.Hour), TimeoutNs: int64(time.Second)}
+	if err := manager.Activate(1, candidateHash(t, candidate), candidate); err != nil {
+		_ = manager.Close()
+		t.Fatal(err)
+	}
+	runtime.GC()
+	var baseline runtime.MemStats
+	runtime.ReadMemStats(&baseline)
+	baselineGoroutines := runtime.NumGoroutine()
+	manager.registry.mu.Lock()
+	var retained *clusterRuntime
+	for _, value := range manager.registry.entries {
+		retained = value
+	}
+	manager.registry.mu.Unlock()
+	if retained == nil || retained.scheduler == nil || retained.scheduler.Count() != 1 {
+		_ = manager.Close()
+		t.Fatalf("initial runtime has unexpected health scheduler: %#v", retained)
+	}
+
+	for revision := int64(2); revision <= 1000; revision++ {
+		next := proto.Clone(candidate).(*pb.GatewayConfig)
+		next.Routes[0].Path = fmt.Sprintf("/revision-%d", revision)
+		if err := manager.Activate(revision, candidateHash(t, next), next); err != nil {
+			_ = manager.Close()
+			t.Fatalf("activate revision %d: %v", revision, err)
+		}
+		if revision%100 == 0 {
+			manager.registry.mu.Lock()
+			entries := len(manager.registry.entries)
+			current := manager.registry.entries[retained.specHash]
+			manager.registry.mu.Unlock()
+			if entries != 1 || current != retained || retained.refs != 1 || retained.scheduler.Count() != 1 {
+				_ = manager.Close()
+				t.Fatalf("revision %d retained entries=%d same-runtime=%t refs=%d probes=%d", revision, entries, current == retained, retained.refs, retained.scheduler.Count())
+			}
+		}
+	}
+	runtime.GC()
+	var after runtime.MemStats
+	runtime.ReadMemStats(&after)
+	heapGrowth := int64(after.HeapAlloc) - int64(baseline.HeapAlloc)
+	if heapGrowth > 24<<20 {
+		_ = manager.Close()
+		t.Fatalf("1000 health-enabled revisions grew live heap by %d bytes, limit is 25165824", heapGrowth)
+	}
+	goroutines := runtime.NumGoroutine()
+	if goroutines > baselineGoroutines+8 {
+		_ = manager.Close()
+		t.Fatalf("1000 health-enabled revisions grew goroutines from %d to %d, limit is baseline +8", baselineGoroutines, goroutines)
+	}
+	t.Logf("1000 health-enabled revisions: live heap growth %d bytes; goroutines %d -> %d (limit baseline +8); retained clusters 1, probes 1", heapGrowth, baselineGoroutines, goroutines)
+	if err := manager.Close(); err != nil {
+		t.Fatal(err)
 	}
 }
 

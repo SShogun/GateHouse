@@ -3,6 +3,7 @@ package admin
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"testing"
@@ -16,6 +17,7 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/status"
 	"google.golang.org/grpc/test/bufconn"
+	"google.golang.org/protobuf/proto"
 )
 
 func TestConnectStreamsLatestSnapshotsAndRecordsInstanceStatus(t *testing.T) {
@@ -205,6 +207,60 @@ func TestConnectRejectsAckForSkippedRevision(t *testing.T) {
 	_, err = stream.Recv()
 	if status.Code(err) != codes.InvalidArgument {
 		t.Fatalf("ACK for stored but undelivered revision 2 error=%v, want InvalidArgument", err)
+	}
+}
+
+func TestConnectSlowSubscriberCoalesces1000Revisions(t *testing.T) {
+	initial := validCandidate()
+	initial.Clusters[0].HealthCheck = &pb.HealthCheck{Path: "/health", IntervalNs: int64(time.Hour), TimeoutNs: int64(time.Second)}
+	_, initialHash, err := config.EncodeCandidate(initial)
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := &memoryStore{active: revision.Record{Number: 1, Hash: initialHash, Config: initial}, records: map[int64]revision.Record{1: {Number: 1, Hash: initialHash, Config: initial}}}
+	service := newService(t, store)
+	listener := bufconn.Listen(1 << 20)
+	server := grpc.NewServer()
+	pb.RegisterDataPlaneServiceServer(server, service)
+	go func() { _ = server.Serve(listener) }()
+	t.Cleanup(func() { server.Stop(); _ = listener.Close() })
+	connection, err := grpc.NewClient("passthrough:///gatehouse-test", grpc.WithContextDialer(func(context.Context, string) (net.Conn, error) { return listener.Dial() }), grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = connection.Close() })
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	stream, err := pb.NewDataPlaneServiceClient(connection).Connect(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := stream.Send(registrationMessage("dp-slow", "boot-a", 0, "")); err != nil {
+		t.Fatal(err)
+	}
+	first, err := stream.Recv()
+	if err != nil || first.GetRevision().GetRevision() != 1 {
+		t.Fatalf("initial update=%+v err=%v", first, err)
+	}
+
+	latest := initial
+	for number := int64(2); number <= 1001; number++ {
+		latest = proto.Clone(latest).(*pb.GatewayConfig)
+		latest.Routes[0].Path = fmt.Sprintf("/revision-%d", number)
+		if _, err := service.PublishConfig(ctx, &pb.PublishConfigRequest{ExpectedParentRevision: number - 1, Config: latest, Actor: "churn-test", Reason: "slow subscriber"}); err != nil {
+			t.Fatalf("publish revision %d: %v", number, err)
+		}
+	}
+	_, latestHash, err := config.EncodeCandidate(latest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := stream.Send(&pb.DataPlaneServiceConnectRequest{InstanceId: "dp-slow", BootId: "boot-a", Event: &pb.DataPlaneServiceConnectRequest_Ack{Ack: &pb.ConfigAck{Revision: 1, ContentHash: initialHash}}}); err != nil {
+		t.Fatal(err)
+	}
+	update, err := stream.Recv()
+	if err != nil || update.GetRevision().GetRevision() != 1001 || update.GetRevision().GetContentHash() != latestHash || update.GetRevision().GetConfig().GetRoutes()[0].GetPath() != "/revision-1001" {
+		t.Fatalf("slow subscriber update=%+v err=%v, want latest revision 1001", update, err)
 	}
 }
 

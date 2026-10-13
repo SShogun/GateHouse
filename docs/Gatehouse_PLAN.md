@@ -320,7 +320,7 @@ Prove Gatehouse's defining control/data-plane architecture. PostgreSQL is contro
 - Compile each candidate before activation, enforce revision/hash integrity and process-start listener immutability, and atomically swap the active snapshot. Existing requests retain their starting snapshot; failed candidates preserve last-known-good.
 - Reuse cluster runtime only when its complete specification hash matches, including retained A state across A→B→A. Release retired workers/resources after their last request owner exits.
 - Dynamic data-plane mode waits for a valid snapshot and remains not ready until activation. A disconnected plane continues serving its active snapshot and exposes connection staleness.
-- **Part 2 status: CLOSED — local acceptance gates evidenced on 2026-10-13.** The control-plane stream delivers the latest complete durable revision on connect, publication, and periodic reconciliation; permits one in-flight snapshot per stream; and validates ACK/NACK only for that exact delivered revision. Newer publications coalesce behind it and the latest complete snapshot is sent after ACK/NACK. Registrations, ACK/NACKs, heartbeats, connection loss, and replacement sessions update instance status. The opt-in dynamic data-plane mode validates and compiles before activation, keeps an in-flight request on its starting snapshot, retains identical cluster state safely across A→B→A, and serves last-known-good configuration through disconnection. BufConn tests cover replay/reconnect/status, skipped-revision ACK rejection, client retry behavior, atomic activation, stale/integrity/listener rejection, readiness/staleness, and runtime reuse. Local pinned unit and race suites, vet, Staticcheck, Buf lint/breaking compatibility, fixture, module verification, and vulnerability scan passed; generation was deterministic. The exact `check-generated` target is pending a tracked tree because generated Part 2 outputs are untracked in this shared working tree. Evidence is recorded in `Gatehouse_TESTING_CI.md`. Part 3 failure campaign and exact-head remote CI remain open.
+- **Part 2 status: CLOSED — local acceptance gates evidenced on 2026-10-13.** The control-plane stream delivers the latest complete durable revision on connect, publication, and periodic reconciliation; permits one in-flight snapshot per stream; and validates ACK/NACK only for that exact delivered revision. Newer publications coalesce behind it and the latest complete snapshot is sent after ACK/NACK. Registrations, ACK/NACKs, heartbeats, connection loss, and replacement sessions update instance status. The opt-in dynamic data-plane mode validates and compiles before activation, keeps an in-flight request on its starting snapshot, retains identical cluster state safely across A→B→A, and serves last-known-good configuration through disconnection. BufConn tests cover replay/reconnect/status, skipped-revision ACK rejection, client retry behavior, atomic activation, stale/integrity/listener rejection, readiness/staleness, and runtime reuse. The final pinned verification passed the unit and race suites, vet, Staticcheck, Buf lint/breaking compatibility fixtures, generated-file checks, module verification, and vulnerability scan; generation was deterministic. Evidence is recorded in `Gatehouse_TESTING_CI.md`. Part 3 failure campaign and exact-head remote CI remain open.
 
 ## Part 3 — Failure campaign and acceptance
 
@@ -328,6 +328,7 @@ Prove Gatehouse's defining control/data-plane architecture. PostgreSQL is contro
 - Restart the control-plane executable while a long request is active; prove request continuity, durable revision recovery, reconnect, and subsequent publication.
 - Run 1,000 health-enabled revisions with a slow subscriber. Prove bounded retained scheduler/probe state, goroutines within baseline +8, and post-warmup heap growth under 24 MiB for the fixed small-config fixture.
 - Record exact toolchain, commands, measurements, review results, and remote checks in the testing evidence document. Keep README milestone status synchronized.
+- **Part 3 status: COMPLETE LOCALLY — acceptance implementation and `make verify` passed on 2026-10-13.** An isolated PostgreSQL CI job runs the full suite; local PostgreSQL transaction, invalid-publication, outage/recovery, and control-plane process restart tests passed against a disposable instance. The restart test retains an in-flight data-plane request through control-plane termination and database outage, then proves reconnection and publication after recovery. A slow subscriber coalesces 1,000 health-enabled publications to the latest revision; a separate 1,000-activation health-runtime test asserts one retained cluster/probe, goroutines within baseline +8, and live heap below 24 MiB. Exact-head remote CI remains pending the user-approved push checkpoint.
 
 ## RED 3A — config publication
 
@@ -435,17 +436,17 @@ Do not implement deltas.
 ## Gate M3
 
 ```text
-[ ] RED 3A–3P GREEN
-[ ] DB unavailable cannot corrupt active data-plane state
-[ ] invalid publish cannot become active
-[ ] config stream reconnect idempotent
-[ ] 1,000 revision churn test stable in goroutines/memory
-[ ] atomic race tests GREEN under -race
-[ ] control-plane restart does not interrupt current data-plane requests
-[ ] audit entry exists for publish/rollback
-[ ] process startup readiness and listener immutability proven
-[ ] full pinned make verify GREEN on final source
-[ ] independent review has no unresolved blockers
+[x] RED 3A–3P GREEN
+[x] DB unavailable cannot corrupt active data-plane state
+[x] invalid publish cannot become active
+[x] config stream reconnect idempotent
+[x] 1,000 revision churn test stable in goroutines/memory
+[x] atomic race tests GREEN under -race
+[x] control-plane restart does not interrupt current data-plane requests
+[x] audit entry exists for publish/rollback
+[x] process startup readiness and listener immutability proven
+[x] full pinned make verify GREEN on final source
+[x] independent review has no unresolved blockers
 [ ] exact-head required remote CI, including security/integration, GREEN
 ```
 
