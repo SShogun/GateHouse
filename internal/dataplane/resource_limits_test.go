@@ -265,7 +265,13 @@ func TestServerReleasesConcurrentSlotAfterCancellationAndPanic(t *testing.T) {
 }
 
 func TestServerReleasesConcurrentSlotWhenUpgradeHandlerReturns(t *testing.T) {
+	handlerReturned := make(chan struct{})
 	server, client := startResourceLimitServer(t, ServerConfig{MaxConcurrentRequests: 1}, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		defer func() {
+			if r.URL.Path == "/upgrade" {
+				close(handlerReturned)
+			}
+		}()
 		if r.URL.Path != "/upgrade" {
 			w.WriteHeader(http.StatusNoContent)
 			return
@@ -296,6 +302,26 @@ func TestServerReleasesConcurrentSlotWhenUpgradeHandlerReturns(t *testing.T) {
 	status, err := bufio.NewReader(conn).ReadString('\n')
 	if err != nil || !strings.Contains(status, "101 Switching Protocols") {
 		t.Fatalf("upgrade status line=%q err=%v", status, err)
+	}
+	select {
+	case <-handlerReturned:
+	case <-time.After(time.Second):
+		t.Fatal("upgrade handler did not return after writing its response")
+	}
+	limiter, ok := server.server.Handler.(*resourceLimitHandler)
+	if !ok {
+		t.Fatalf("server handler has type %T, want resource limit handler", server.server.Handler)
+	}
+	deadline := time.NewTimer(time.Second)
+	ticker := time.NewTicker(time.Millisecond)
+	defer deadline.Stop()
+	defer ticker.Stop()
+	for len(limiter.active) != 0 {
+		select {
+		case <-deadline.C:
+			t.Fatal("concurrent request slot was not released after the upgrade handler returned")
+		case <-ticker.C:
+		}
 	}
 	resp, err := client.Get("http://" + server.Addr() + "/after-upgrade")
 	if err != nil {

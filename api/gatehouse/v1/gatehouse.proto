@@ -4,4 +4,5 @@ package gatehouse.v1;
 
 option go_package = "github.com/SShogun/GateHouse/gen/go/gatehouse/v1;gatehousev1";
 
-// Contract definitions intentionally remain unimplemented pending human API design.
+// This file retains the original package contract. Typed configuration and
+// AdminService messages are defined in config.proto and control.proto.

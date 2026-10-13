@@ -10,7 +10,7 @@ A production-minded Layer 7 gateway in Go, designed around protocol correctness,
 
 </div>
 
-> **Project state: M2 implementation present — static routing, clusters, and health.** The gateway can compile in-memory listener, route, and cluster configuration, match requests deterministically, select eligible endpoints, and run optional HTTP health checks. The `gatehouse-data` command still builds a single default route and cluster from environment variables. M3 configuration storage and dynamic publication/reload are not implemented.
+> **Project state: M2 data plane plus M3 Parts 1–3 implemented; local verification passed and exact-head hosted CI is green on `67c46cb`.** M3 has typed configuration/Admin protobufs, PostgreSQL revision storage, a loopback-only development control plane, config streaming, instance status, and opt-in dynamic data-plane activation with last-known-good snapshots. Part 3 adds database integration and recovery tests, an executable restart scenario, and bounded 1,000-revision churn coverage. Local PostgreSQL verification used a disposable PostgreSQL 18.6 instance; CI runs the suite against PostgreSQL 16.
 
 [What exists](#what-works-today) · [Run checks](#try-the-current-foundation) · [Target architecture](#target-architecture) · [Roadmap](#roadmap) · [Docs](#repository-map)
 
@@ -34,14 +34,17 @@ The current implementation provides:
 
 - separate Go command entry points for `gatehouse-control` and `gatehouse-data`;
 - a static HTTP reverse proxy and compiled in-memory route/cluster runtime, with bounded server defaults and graceful shutdown;
+- an opt-in dynamic mode that receives complete config snapshots over gRPC, validates and compiles candidates before atomic activation, and serves its last-known-good snapshot through control-plane outages;
+- data-plane registration, ACK/NACK, heartbeat, reconnect, readiness, and connection-staleness reporting;
+- Admin instance `Connected` status reflects a live stream owned by the current control-plane process and matching the stored boot ID; persisted instance fields remain the latest reported metadata;
 - deterministic route matching, endpoint selection, and optional scheduled HTTP health checks;
 - SIGINT/SIGTERM handling, root cancellation, and bounded shutdown coordination;
 - a `gatehouse.v1` Protobuf workspace with committed Go and TypeScript generated output;
 - Buf linting, compatibility checks, and generated-code drift checks;
 - an executable compatibility fixture that proves Buf rejects a removed field and accepts a compatible addition;
-- separate CI jobs for contracts, static analysis, unit tests, race tests, and vulnerability scanning.
+- separate CI jobs for contracts, static analysis, unit tests, race tests, PostgreSQL integration, and vulnerability scanning.
 
-The data-plane binary listens on `127.0.0.1:8080` and routes requests to `http://127.0.0.1:8081` by default. Set `GATEHOUSE_LISTEN_ADDR` and `GATEHOUSE_UPSTREAM_URL` to override the listener and the sole endpoint configured by this command. The gateway/config packages support richer static in-memory route and cluster configurations, but the command does not load them from a file or control plane. The control-plane binary remains a lifecycle scaffold. The Protobuf package is a contract workspace, not a completed application API.
+Without `GATEHOUSE_CONTROL_ENDPOINT`, the data-plane binary listens on `127.0.0.1:8080` and routes requests to `http://127.0.0.1:8081` by default. Set `GATEHOUSE_LISTEN_ADDR` and `GATEHOUSE_UPSTREAM_URL` to override that static demo. To run dynamically, set `GATEHOUSE_CONTROL_ENDPOINT=127.0.0.1:9090` and a stable `GATEHOUSE_INSTANCE_ID`; the process generates a fresh boot ID on startup and waits for a valid snapshot. `GET /_gatehouse/readyz` reports readiness and `GET /_gatehouse/status` reports active revision and control-stream freshness. The development control-plane command starts its Admin and config-stream services only when explicitly enabled and backed by PostgreSQL. Part 3’s database outage/recovery, process restart, and bounded churn proofs are recorded in `Gatehouse_TESTING_CI.md`.
 
 ## Target architecture
 
@@ -96,7 +99,7 @@ GATEHOUSE_UPSTREAM_URL=http://127.0.0.1:8081 \
 go run ./cmd/gatehouse-data
 ```
 
-The default command configuration matches all requests to one cluster with one upstream endpoint. The gateway runtime also supports deterministic static route matching and cluster endpoint selection, with optional scheduled HTTP health checks when configured in memory. The proxy preserves the request method, path, end-to-end headers, and body; forwards response status, end-to-end headers, and body; strips hop-by-hop headers; propagates request cancellation; and streams response chunks without waiting for the full upstream body. Retries and dynamic configuration publication/reload are not implemented. SIGINT (`Ctrl+C`) and SIGTERM stop new requests and drain in-flight requests within the shutdown timeout. The control-plane scaffold can be started with `go run ./cmd/gatehouse-control` and currently waits for a shutdown signal.
+The default command configuration matches all requests to one cluster with one upstream endpoint. The gateway runtime also supports deterministic static route matching and cluster endpoint selection, with optional scheduled HTTP health checks when configured in memory. The proxy preserves the request method, path, end-to-end headers, and body; forwards response status, end-to-end headers, and body; strips hop-by-hop headers; propagates request cancellation; and streams response chunks without waiting for the full upstream body. In dynamic mode, the client reconnects with bounded backoff, NACKs invalid snapshots, and keeps serving the active snapshot during outages. SIGINT (`Ctrl+C`) and SIGTERM stop new requests and drain in-flight requests within the shutdown timeout. Start the development control plane with `GATEHOUSE_CONTROL_DEV_MODE=loopback` and `GATEHOUSE_DATABASE_URL` set to a PostgreSQL URL; it verifies connectivity and migrations before listening.
 
 The development command accepts only literal loopback listener addresses, such as `127.0.0.1:8080` or `[::1]:8080`; wildcard addresses, non-loopback IPs, and hostnames are rejected. Defaults cap each listener at 128 concurrent HTTP handlers; excess requests receive HTTP 503 immediately, without a queue. Request headers have a 5-second read timeout and a 1 MiB size limit, and idle keep-alive connections close after 90 seconds. Each request-body read has a 30-second idle timeout, not a total upload deadline. The upstream must return response headers within 30 seconds after the request is written, and those headers are limited to 1 MiB. Request uploads and response bodies remain streamed, with no fixed response write timeout. Authentication and TLS remain M6 work; total request deadlines and route-level policies remain M5 work. See the [PR #5 review record](docs/Gatehouse_PR5_REVIEW.md) for dispositions and verification evidence.
 

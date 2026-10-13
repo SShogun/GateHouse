@@ -58,11 +58,21 @@ func NewServer(handler http.Handler, cfg ServerConfig) (*Server, error) {
 	if handler == nil {
 		return nil, errors.New("HTTP handler is nil")
 	}
+	normalized, err := NormalizeServerConfig(cfg)
+	if err != nil {
+		return nil, err
+	}
+	return &Server{handler: handler, cfg: normalized}, nil
+}
+
+// NormalizeServerConfig applies the process-start listener defaults once so
+// snapshot immutability compares the effective server contract.
+func NormalizeServerConfig(cfg ServerConfig) (ServerConfig, error) {
 	if cfg.Address == "" {
-		return nil, errors.New("server address is required")
+		return ServerConfig{}, errors.New("server address is required")
 	}
 	if err := cfg.Validate(); err != nil {
-		return nil, err
+		return ServerConfig{}, err
 	}
 	if cfg.ReadHeaderTimeout <= 0 {
 		cfg.ReadHeaderTimeout = defaultReadHeaderTimeout
@@ -79,7 +89,7 @@ func NewServer(handler http.Handler, cfg ServerConfig) (*Server, error) {
 	if cfg.RequestBodyReadIdleTimeout == 0 {
 		cfg.RequestBodyReadIdleTimeout = defaultRequestBodyReadIdleTimeout
 	}
-	return &Server{handler: handler, cfg: cfg}, nil
+	return cfg, nil
 }
 
 // Start binds the configured listener and starts accepting HTTP requests.

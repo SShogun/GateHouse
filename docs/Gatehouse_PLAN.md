@@ -304,7 +304,31 @@ M2 acceptance evidence is recorded in `Gatehouse_TESTING_CI.md`.
 
 ## Objective
 
-Prove Gatehouse's defining control/data-plane architecture.
+Prove Gatehouse's defining control/data-plane architecture. PostgreSQL is control-plane-only; the data plane receives complete immutable snapshots and serves its last-known-good configuration through control-plane outages.
+
+## Part 1 — Durable revisions and typed publication
+
+- Define typed protobuf snapshots for current listener, route, cluster, endpoint, and health-check configuration, plus the Admin API for validation, publication, revision history, diff, rollback, and instance status. Persist one current boot row per non-empty instance ID and expose bounded keyset listing now; Part 2 adds stream-driven updates and reconnect behavior.
+- Preserve all M2 config fields in lossless conversions. Hash deterministic protobuf snapshot bytes with SHA-256; reject unknown fields, unsupported schema/enums, oversized snapshots, and invalid configs before publication.
+- Add PostgreSQL migrations and an immutable revision store. A transaction holds a PostgreSQL advisory lock, checks the expected parent, inserts revision content and audit data, updates the active pointer, and emits a transactional notification. Rollback publishes historical content as a new revision.
+- Start the control-plane gRPC service only when explicit mode is enabled and the bind address is a literal loopback IP. Apply migrations and verify database connectivity at startup; bound request and shutdown lifetimes.
+- **Part 1 status: CLOSED — local acceptance gates evidenced on 2026-10-13.** Implementation and config/Admin/store tests are present, including instance identity validation and a PostgreSQL upsert for one current boot row per instance ID. The control-plane command tests explicit enablement, literal loopback binding, database-before-listen ordering, graceful gRPC stop, and forced stop at the shutdown deadline. The pinned shuffled unit suite and PostgreSQL integration test passed locally; the integration test exercised migration, instance-row replacement, concurrent publication, rollback, audit persistence, and transaction rollback. Part 1 local test evidence is recorded in `Gatehouse_TESTING_CI.md`; config streaming and dynamic activation remain in later M3 parts.
+
+## Part 2 — Configuration stream and atomic data-plane activation
+
+- Stream the latest full snapshot to data-plane instances; support reconnect, ACK/NACK, and heartbeat/status reporting. Coalesce queued updates to the latest complete snapshot.
+- Compile each candidate before activation, enforce revision/hash integrity and process-start listener immutability, and atomically swap the active snapshot. Existing requests retain their starting snapshot; failed candidates preserve last-known-good.
+- Reuse cluster runtime only when its complete specification hash matches, including retained A state across A→B→A. Release retired workers/resources after their last request owner exits.
+- Dynamic data-plane mode waits for a valid snapshot and remains not ready until activation. A disconnected plane continues serving its active snapshot and exposes connection staleness.
+- **Part 2 status: CLOSED — local acceptance gates evidenced on 2026-10-13.** The control-plane stream delivers the latest complete durable revision on connect, publication, and periodic reconciliation; permits one in-flight snapshot per stream; and validates ACK/NACK only for that exact delivered revision. Newer publications coalesce behind it and the latest complete snapshot is sent after ACK/NACK. Registrations, ACK/NACKs, heartbeats, connection loss, and replacement sessions update instance status. The opt-in dynamic data-plane mode validates and compiles before activation, keeps an in-flight request on its starting snapshot, retains identical cluster state safely across A→B→A, and serves last-known-good configuration through disconnection. BufConn tests cover replay/reconnect/status, skipped-revision ACK rejection, client retry behavior, atomic activation, stale/integrity/listener rejection, readiness/staleness, and runtime reuse. The final pinned verification passed the unit and race suites, vet, Staticcheck, Buf lint/breaking compatibility fixtures, generated-file checks, module verification, and vulnerability scan; generation was deterministic. Evidence is recorded in `Gatehouse_TESTING_CI.md`. Part 3 acceptance and exact-head hosted CI are now recorded below.
+
+## Part 3 — Failure campaign and acceptance
+
+- Add isolated PostgreSQL integration coverage and a required CI job. Exercise transaction failures, editor conflicts, rollback durability, invalid publication, reconnect/idempotency, and database outage/recovery.
+- Restart the control-plane executable while a long request is active; prove request continuity, durable revision recovery, reconnect, and subsequent publication.
+- Run 1,000 health-enabled revisions with a slow subscriber. Prove bounded retained scheduler/probe state, goroutines within baseline +8, and post-warmup heap growth under 24 MiB for the fixed small-config fixture.
+- Record exact toolchain, commands, measurements, review results, and remote checks in the testing evidence document. Keep README milestone status synchronized.
+- **Part 3 status: CLOSED — local acceptance and exact-head hosted CI evidenced.** PostgreSQL integration now injects revision-insert, active-pointer-update, and audit-insert failures and verifies each leaves the active pointer, revision history, and audit log unchanged. `FuzzConfigDecodeValidate` covers protobuf decode, validation, canonical re-encoding, and hash stability; its seeds and a bounded fuzz run passed. Existing PostgreSQL invalid-publication, editor-conflict, rollback, outage/recovery, and real control-plane restart tests pass against a disposable instance. The restart test retains an in-flight data-plane request through control-plane termination and database outage, then proves reconnection and publication after recovery. A slow subscriber coalesces 1,000 health-enabled publications to the latest revision; a separate 1,000-activation health-runtime test asserts one retained cluster/probe, goroutines within baseline +8, and live heap below 24 MiB. GitHub Actions run [#25](https://github.com/SShogun/GateHouse/actions/runs/38424816123) passed all six jobs on exact head `67c46cb7819d6c90a28c285453eb23f51e4eae75`. Evidence and the connected-status correction are recorded in `Gatehouse_TESTING_CI.md`.
 
 ## RED 3A — config publication
 
@@ -348,6 +372,49 @@ Disconnect config stream after a valid revision is active. Requests continue; st
 
 Two mutations based on same parent; only one publication succeeds without explicit rebase.
 
+## Additional RED cases
+
+```text
+RED 3G — publication transaction failure
+Fail revision insert, active-pointer update, or audit insert
+-> transaction rolls back; previous active revision remains authoritative
+
+RED 3H — rollback durability
+Publish A, then B, then rollback to A
+-> new revision C contains A's config; history is unchanged; audit exists
+
+RED 3I — validation and contract fidelity
+Round-trip M2 config fields; reject invalid config before publication
+-> dry-run creates no listener, probe, or retained worker
+
+RED 3J — integrity and duplicate delivery
+Same revision/hash is idempotent; same revision with different hash or a bad payload hash
+-> integrity failure; active state unchanged
+
+RED 3K — runtime ownership
+Route-only update retains unchanged cluster state; changed spec gets independent state
+A→B→A with in-flight A request -> retained A state is reused safely
+
+RED 3L — listener immutability
+Snapshot changing process listener settings -> reject before activation
+
+RED 3M — initial readiness and staleness
+No valid snapshot -> not ready and proxy returns 503
+Disconnect after activation -> serve continues and staleness rises; reconnect recovers
+
+RED 3N — real process restart
+Restart control-plane executable during a long request
+-> request completes, durable config recovers, data plane reconnects
+
+RED 3O — database outage/recovery
+Database unavailable -> publication fails without affecting active requests
+Database restored -> valid publication commits and converges
+
+RED 3P — bounded churn and subscribers
+1,000 health-enabled revisions plus slow subscriber
+-> latest revision delivered; runtime state, goroutines, and heap remain bounded
+```
+
 ## GREEN 3
 
 Implement:
@@ -369,14 +436,21 @@ Do not implement deltas.
 ## Gate M3
 
 ```text
-[ ] RED 3A-3F GREEN
-[ ] DB unavailable cannot corrupt active data-plane state
-[ ] invalid publish cannot become active
-[ ] config stream reconnect idempotent
-[ ] 1,000 revision churn test stable in goroutines/memory
-[ ] atomic race tests GREEN under -race
-[ ] control plane restart does not interrupt current data-plane requests
-[ ] audit entry exists for publish/rollback
+[x] RED 3A–3P GREEN
+[x] DB unavailable cannot corrupt active data-plane state
+[x] invalid publish cannot become active
+[x] config stream reconnect idempotent
+[x] 1,000 revision churn test stable in goroutines/memory
+[x] atomic race tests GREEN under -race
+[x] control-plane restart does not interrupt current data-plane requests
+[x] audit entry exists for publish/rollback
+[x] process startup readiness and listener immutability proven
+[x] full pinned make verify GREEN on final source
+[x] independent review has no unresolved blockers
+[x] stale connected-status audit finding resolved and reviewed
+[x] M3 config decode/validate fuzz target added and exercised
+[x] transaction failure injection covers revision insert, active-pointer update, and audit insert
+[x] exact-head required remote CI, including security/integration, GREEN (GitHub Actions run [#25](https://github.com/SShogun/GateHouse/actions/runs/38424816123) on `67c46cb7819d6c90a28c285453eb23f51e4eae75`; see `Gatehouse_TESTING_CI.md`)
 ```
 
 ---

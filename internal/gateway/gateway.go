@@ -3,13 +3,9 @@
 package gateway
 
 import (
-	"context"
-	"errors"
 	"fmt"
-	"io"
 	"log/slog"
 	"net/http"
-	"net/url"
 	"strconv"
 	"sync"
 	"time"
@@ -34,6 +30,9 @@ type clusterRuntime struct {
 	config    config.Cluster
 	selection *cluster.Cluster
 	endpoints map[string]*endpointRuntime
+	specHash  string
+	refs      int
+	scheduler *cluster.Scheduler
 }
 
 // Gateway owns a compiled route set, cluster health state, endpoint proxies,
@@ -42,15 +41,9 @@ type Gateway struct {
 	routes    *router.Matcher
 	clusters  map[string]*clusterRuntime
 	logger    *slog.Logger
-	scheduler *cluster.Scheduler
-	probeHTTP *http.Client
+	registry  *clusterRegistry
 	closeOnce sync.Once
 }
-
-const (
-	defaultProbeTimeout = 5 * time.Second
-	maxProbeConcurrency = 16
-)
 
 // New validates and constructs the data-plane runtime.
 func New(cfg config.Config, logger *slog.Logger) (*Gateway, error) {
@@ -59,6 +52,10 @@ func New(cfg config.Config, logger *slog.Logger) (*Gateway, error) {
 
 // NewWithOptions validates and constructs a gateway with injectable probe HTTP.
 func NewWithOptions(cfg config.Config, logger *slog.Logger, options Options) (*Gateway, error) {
+	return newWithRegistry(cfg, logger, options, newClusterRegistry())
+}
+
+func newWithRegistry(cfg config.Config, logger *slog.Logger, options Options, registry *clusterRegistry) (*Gateway, error) {
 	if err := config.Validate(cfg); err != nil {
 		return nil, fmt.Errorf("validate gateway config: %w", err)
 	}
@@ -73,108 +70,23 @@ func NewWithOptions(cfg config.Config, logger *slog.Logger, options Options) (*G
 	if err != nil {
 		return nil, fmt.Errorf("compile gateway routes: %w", err)
 	}
-	probeTimeout := defaultProbeTimeout
-	for _, configured := range cfg.Clusters {
-		if configured.HealthCheck != nil && configured.HealthCheck.Timeout > probeTimeout {
-			probeTimeout = configured.HealthCheck.Timeout
-		}
-	}
 	g := &Gateway{
 		routes: routes, clusters: make(map[string]*clusterRuntime, len(cfg.Clusters)),
-		logger: logger,
-		scheduler: cluster.NewSchedulerWithOptions(cluster.SchedulerOptions{
-			ProbeTimeout: probeTimeout, MaxConcurrent: maxProbeConcurrency,
-		}),
-		probeHTTP: options.ProbeClient,
+		logger: logger, registry: registry,
 	}
-	if g.probeHTTP == nil {
-		g.probeHTTP = http.DefaultClient
-	}
-	type scheduledHealthCheck struct {
-		id       string
-		interval time.Duration
-		probe    cluster.Probe
-	}
-	var schedules []scheduledHealthCheck
 	for _, configured := range cfg.Clusters {
-		selection, err := cluster.New(cluster.Config{Endpoints: configured.Endpoints, Health: configured.Health})
+		state, err := registry.acquire(configured, logger, options.ProbeClient)
 		if err != nil {
 			g.Close()
 			return nil, fmt.Errorf("create cluster %q: %w", configured.ID, err)
 		}
-		state := &clusterRuntime{config: configured, selection: selection, endpoints: make(map[string]*endpointRuntime, len(configured.Endpoints))}
 		g.clusters[configured.ID] = state
-		for _, ep := range configured.Endpoints {
-			proxy, err := dataplane.NewProxy(dataplane.Config{UpstreamURL: ep.Address}, logger)
-			if err != nil {
-				g.Close()
-				return nil, fmt.Errorf("create proxy for cluster %q endpoint %q: %w", configured.ID, ep.ID, err)
-			}
-			state.endpoints[ep.ID] = &endpointRuntime{proxy: proxy}
-			if configured.HealthCheck != nil {
-				clusterID, endpointID, health := configured.ID, ep.ID, *configured.HealthCheck
-				address := ep.Address
-				schedules = append(schedules, scheduledHealthCheck{
-					id: scheduleID(clusterID, endpointID), interval: health.Interval,
-					probe: func(parent context.Context) error {
-						return g.checkEndpoint(parent, clusterID, endpointID, address, health)
-					},
-				})
-			}
-		}
-	}
-	// Start workers only after the cluster map and every endpoint proxy are
-	// complete; Add runs its first probe immediately on another goroutine.
-	for _, schedule := range schedules {
-		if err := g.scheduler.Add(schedule.id, schedule.interval, schedule.probe); err != nil {
-			g.Close()
-			return nil, fmt.Errorf("schedule health check %q: %w", schedule.id, err)
-		}
 	}
 	return g, nil
 }
 
 func scheduleID(clusterID, endpointID string) string {
 	return strconv.Itoa(len(clusterID)) + ":" + clusterID + strconv.Itoa(len(endpointID)) + ":" + endpointID
-}
-
-func (g *Gateway) checkEndpoint(parent context.Context, clusterID, endpointID, address string, health config.HealthCheck) error {
-	ctx, cancel := context.WithTimeout(parent, health.Timeout)
-	defer cancel()
-	target, err := url.Parse(address)
-	if err == nil {
-		var probePath *url.URL
-		probePath, err = url.ParseRequestURI(health.Path)
-		if err == nil {
-			target.Path = probePath.Path
-			target.RawPath = probePath.RawPath
-		}
-		target.RawQuery = ""
-		target.Fragment = ""
-	}
-	success := false
-	if err == nil {
-		request, requestErr := http.NewRequestWithContext(ctx, http.MethodGet, target.String(), nil)
-		if requestErr == nil {
-			response, doErr := g.probeHTTP.Do(request)
-			if doErr == nil {
-				_, copyErr := io.Copy(io.Discard, response.Body)
-				_ = response.Body.Close()
-				success = copyErr == nil && ctx.Err() == nil && response.StatusCode >= 200 && response.StatusCode < 300
-			}
-		}
-	}
-	markErr := g.MarkResult(clusterID, endpointID, success)
-	if err != nil {
-		return err
-	}
-	if markErr != nil {
-		return markErr
-	}
-	if !success {
-		return errors.New("health probe failed")
-	}
-	return nil
 }
 
 // MarkResult applies a probe outcome. It is also a deterministic seam for
@@ -264,11 +176,8 @@ func (w *telemetryWriter) Write(body []byte) (int, error) {
 // Close stops and joins health checks, then releases idle proxy connections.
 func (g *Gateway) Close() error {
 	g.closeOnce.Do(func() {
-		g.scheduler.Stop()
 		for _, state := range g.clusters {
-			for _, endpoint := range state.endpoints {
-				endpoint.proxy.CloseIdleConnections()
-			}
+			g.registry.release(state)
 		}
 	})
 	return nil

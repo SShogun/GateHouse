@@ -383,3 +383,17 @@ The Go module path follows the canonical repository identity: `github.com/SShogu
 Since `gatehouse.v1` defined no application messages and the project was pre-release (M0), the `go_package` option in `gatehouse.v1` was updated directly to match the new canonical repository path.
 
 The zero-consumer migration completed in M0. The temporary `FILE_SAME_GO_PACKAGE` exception was removed in commit `0d366eb`; `buf.yaml` now enforces strict `FILE` compatibility. No temporary exception remains.
+
+---
+
+## D045 — Admin connection status is process-local
+
+**Decision:** The Admin API's `InstanceStatus.Connected` reports whether this control-plane process currently owns a live stream for the instance and that session's registered boot ID matches the boot ID in the stored instance row.
+
+PostgreSQL continues to store the latest reported instance metadata, including its last reported connection flag, for compatibility and diagnostics. That stored flag is not authoritative for the public `Connected` projection. A control-plane restart therefore reports persisted instances disconnected until their streams reconnect. During a database outage, instance listing retains its existing database-error behavior; the process-local projection applies after reads recover.
+
+**Why:** A crash or failed disconnect write cannot reliably clear durable connection state. Tying the API status to the current process's session registry prevents a stale row from claiming a stream exists and prevents a replaced boot from inheriting the old stream's status.
+
+**Scope:** One control-plane process owns this view. Global status across multiple control-plane processes would require a separate shared lease/ownership design. This decision adds no protobuf field, migration, startup reset, or lease worker.
+
+**Evidence:** The session registry projects status after the bounded database page is read; service regressions cover orphaned rows, boot mismatch, failed disconnect persistence, and replacement ownership. A disposable-PostgreSQL process test covers restart and database outage/recovery. See `Gatehouse_TESTING_CI.md`, “M3 connected-status audit correction.”
