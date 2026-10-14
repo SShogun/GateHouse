@@ -8,6 +8,14 @@
 
 # 1. Definition of done
 
+## Intended user, workload and product advantage
+
+GateHouse targets developers and small teams running 5–20 HTTP/gRPC services on VMs or Docker Compose, needing dynamic configuration, safe rollback and predictable resource use. The release goal is a gateway another developer can deploy, operate and upgrade in their project. Educational value is not the product acceptance criterion.
+
+The [product and benchmark contract](Gatehouse_PRODUCT_BENCHMARKS.md) is authoritative for the P100-H/P100-G/P1000-C profiles and T01–T09. Initial unmeasured targets include **25% lower data-plane peak RSS with at least 90% of the fastest eligible reference's capacity**, p99 latency difference vs direct upstream ≤2 ms, streaming goodput ≥90% of direct, and publication-to-activation p95 ≤250 ms. Report whole deployment cost including PostgreSQL; these goals are not market-performance claims until reproduced.
+
+Baseline comparison candidates are pinned Caddy and Traefik OSS configurations, with a minimal Go ReverseProxy and direct upstream as controls. Preserve completed M0–M3 evidence. P0/P1 and the secure pilot gates below are new unchecked obligations; M3 completion does not imply a public production release. D046–D049 record this direction and supersede the learning-based restriction in D037.
+
 Gatehouse core is complete only when the repository can prove:
 
 ```text
@@ -42,6 +50,10 @@ Buf compatibility checks GREEN
 govulncheck/security checks GREEN
 +
 performance report with p50/p95/p99 + profiles
++
+supported workload targets T01–T09 with comparison uncertainty and whole-stack cost
++
+secure quickstart + usable diagnostics + beta/pilot evidence with honest adoption status
 +
 fresh build/deploy/demo reproducible
         |
@@ -99,15 +111,19 @@ M2  deterministic router + clusters + health
  |
 M3  control plane + revisions + dynamic atomic config
  |
-M4  HTTP/2 + Connect + gRPC + streaming semantics
+P0  current HTTP/stream/config baseline + footprint + insight + architecture gate
  |
-M5  timeout + retry + budget + concurrency + circuit breaker
+M4  HTTP/2 + Connect + gRPC + streaming semantics + P1 protocol baseline
  |
-M6  JWT/OIDC + rate limiting + TLS/mTLS policy
+M5  timeout + retry + budget + concurrency + circuit breaker + P1 policy baseline
+ |
+M6  JWT/OIDC + rate limiting + TLS/mTLS policy + P1 auth/limiter baseline
+ |
+secure beta/pilot readiness + early telemetry (external adoption tracked separately)
  |
 M7  observability + operator UI
  |
-M8  fault campaign + performance + resource hardening
+M8  extended fault/soak + performance regression + resource hardening
  |
 M9  mixed-version/release/reproducibility audit
 ```
@@ -306,6 +322,8 @@ M2 acceptance evidence is recorded in `Gatehouse_TESTING_CI.md`.
 
 Prove Gatehouse's defining control/data-plane architecture. PostgreSQL is control-plane-only; the data plane receives complete immutable snapshots and serves its last-known-good configuration through control-plane outages.
 
+**Showcase:** Follow [the M3 walkthrough](Gatehouse_M3_DEMO.md) from a clean checkout: publish blue, switch to green without restarting, inspect instance ACK/history/diff, reject invalid and stale mutations, roll back as a new revision, then stop/restart management while traffic continues. The walkthrough covers interactive backend operation; real-process tests additionally prove in-flight request continuity and database faults. A graphical operator interface remains M7.
+
 ## Part 1 — Durable revisions and typed publication
 
 - Define typed protobuf snapshots for current listener, route, cluster, endpoint, and health-check configuration, plus the Admin API for validation, publication, revision history, diff, rollback, and instance status. Persist one current boot row per non-empty instance ID and expose bounded keyset listing now; Part 2 adds stream-driven updates and reconnect behavior.
@@ -453,6 +471,82 @@ Do not implement deltas.
 [x] exact-head required remote CI, including security/integration, GREEN (GitHub Actions run [#25](https://github.com/SShogun/GateHouse/actions/runs/38424816123) on `67c46cb7819d6c90a28c285453eb23f51e4eae75`; see `Gatehouse_TESTING_CI.md`)
 ```
 
+### Post-M3 CI correction — 2026-10-14
+
+The historical gate above records its tested SHA. The later documentation/showcase branch exposed two CI findings; PR #10 is not ready to merge until these corrections are published and its exact-head checks pass. See D053 and the follow-up evidence in `Gatehouse_TESTING_CI.md`.
+
+- [x] First-branch push baseline: reproduce the all-zero previous-head failure, select the fetched default branch, and cover normal and rejected event cases.
+- [x] Restart metadata race: deterministically delay the first ACK, reproduce the missing revision assertion, then wait for server-persisted boot/build/revision/hash before crashing. Preserve request continuity, recovery, and metadata assertions.
+- [x] Pinned Go 1.26.9 full `make verify` with disposable PostgreSQL, including race and security checks; bounded independent review has no unresolved blocker.
+- [ ] Approved commit/push and successful exact-head hosted CI for this correction. Previous green M3 checks do not satisfy this item.
+
+---
+
+# 7a. Early product and baseline campaign — P0 / P1
+
+**Current scheduling status (2026-10-14): DEFERRED by user decision D052.** Retain the campaign below for later execution. M4 protocol implementation may proceed before P0; benchmark acceptance items remain pending and do not become passed through deferral. The single Debian lab VM exists with 4 GiB RAM; no driver/upstream clones or competitive load runs were created by the interrupted automatic setup.
+
+## Objective
+
+Move the entire first performance campaign out of M8. Establish a controlled HTTP baseline and source-grounded architecture decisions before M4. Benchmark each new protocol/policy when it first works; never claim a gRPC/JWT result from an HTTP/no-policy stand-in. Scope, methods, budgets and research sources are in `Gatehouse_PRODUCT_BENCHMARKS.md`.
+
+**Next sequence:** Follow the [competitor execution plan](Gatehouse_COMPETITOR_BENCHMARK_PLAN.md): Part A locks versions, builds fixtures/config adapters and proves conformance; Part B measures Caddy, Traefik and Go-RP's eligible categories first; Part C publishes the reference report, derives absolute GateHouse budgets, then measures eligible GateHouse profiles. Reference HTTP/2/gRPC can be measured before GateHouse M4, while GateHouse rows remain blocked. No load tests have been run by these documentation revisions.
+
+- [ ] Reference Part A gate: environment, fixtures, native configuration, protocol parity and observer/driver calibration pass.
+- [ ] Reference Part B gate: each T01–T09 category has measured/FAIL/N/A/UNAVAILABLE outcomes per candidate, with transport/product and default/tuned settings separate.
+- [ ] Reference Part C gate: raw data regenerates the report; absolute GateHouse budgets have units and provenance; no computed goal is called achieved performance.
+
+## Part 1 — Reproducible harness and basic insight (P0)
+
+**Environment sequence:** [VM benchmark learning plan](Gatehouse_BENCHMARK_VM_PLAN.md), E0–E9. The user completed host inventory and a single Debian VM forwarding exercise, then authorized assistance with clones before deferring the campaign under D052. Further provisioning, calibration and benchmark execution remain pending.
+
+- [x] E0: manually inspect host OS, CPU topology, RAM, storage and available virtualization; choose the first lab path from evidence. The user reported Linux x86_64, VT-x and `/dev/kvm` available; host-specific details remain in the conversation, not this project file. Local KVM is the first path to investigate.
+- [ ] E1–E3: create one disposable Linux VM manually; learn networking, processes and resource reporting; demonstrate one request through a foreground reverse proxy and clean shutdown.
+- [ ] E4–E6: assess capacity; manually create separate driver/upstream/gateway roles if feasible; install pinned candidates, check conformance and pilot calibration.
+- [ ] E7–E9: review and execute the run matrix by hand, analyze raw evidence, derive numeric targets and verify cleanup.
+
+**Dependencies:** completed M3; no production-mode or gRPC claim.
+
+- [ ] Build versioned upstream/load/config fixtures for P100-H, P1000-C and available P-FAULT cases, with direct calibration and Go ReverseProxy as the separately scoped C1 transport control; pin Caddy/Traefik OSS versions/images and freeze equivalent product configs.
+- [ ] Record the 2 vCPU / 2 GiB gateway-host budget and separate load/upstream roles, source SHA, Go 1.26.9, networking, CPU/kernel/cgroups and timing resolution. Define offered-load correctness, sustainable capacity and common Q exactly as the product contract requires.
+- [ ] Collect external CPU/RSS/cgroup/connection measurements plus bounded request outcomes, revision status, activation/rejection and control staleness. Add semantic tests for metric labels and sink outage behavior as instrumentation lands; retain full M7 requirements.
+- [ ] Verify driver/upstream spare capacity, missed-arrival/timeouts accounting, status/body correctness and bounded scenario teardown. Export raw machine-readable data, run manifests and profiles; do not expose bodies, secrets or arbitrary identifiers.
+
+**Verification:** replay a small bounded fixture and independently check request counts, fault timestamps, effective config, revision and measurements. Fail on an invalid benchmark environment. Planned benchmark commands become documented commands only when implemented; no new Makefile target is claimed by this plan edit.
+
+## Part 2 — HTTP baseline and architecture gate (P0, before M4)
+
+- [ ] Run five randomized repeated baselines for HTTP overhead/capacity, streaming goodput, 1/100/1k/10k route scaling, 1k-route compile/apply, failure/retry-free behavior, and allocation/CPU/mutex/heap profiles. Re-run the earlier route benchmark under pinned Go; its previous differing-runtime result is not a competitive baseline.
+- [ ] Report T01–T06 and T08–T09 on runnable HTTP fixtures, basic T07 metrics/log cost, and each missing feature explicitly. Measure data-plane cost and total control-plane/PostgreSQL deployment separately.
+- [ ] Resolve each architecture-review row: request-path mutex contention; quadratic route-ambiguity validation; per-endpoint pools/probes; retained revision lifetime; stream notification/poll reconciliation; configuration/instance bounds; whole-stack store cost; insight/security prerequisites.
+- [ ] Keep/change/reject each optimization from measured evidence. Any runtime ownership/store/proxy/dependency change has a separate ADR and meaningful RED→GREEN correctness/race regressions; a neutral speed result is not a performance win.
+- [ ] Freeze the initial release targets or amend them with rationale, retaining original proposed values and misses. Publish the initial result report including losing/inconclusive cases.
+- [ ] Derive concrete MiB, correct req/s/core and MiB/s GateHouse budgets from measured references/direct results; retain independent latency/activation/reliability limits. Re-run peers at Q_all if adding GateHouse changes the matched offered load.
+
+**P0 gate:** valid environment and reproducible HTTP evidence; architecture review resolved; target feasibility/misses and approved remediation recorded; no omitted runnable metric or unsupported feature marked GREEN. Actual optimizations receive their own completion gates before feature work advances.
+
+## Part 3 — Complete the entire campaign as capabilities arrive (P1)
+
+| Baseline / insight obligation | Owner and dependency | Acceptance evidence |
+| --- | --- | --- |
+| Direct vs gateway HTTP; streaming memory/goodput; route scale; config compile/apply; allocation/CPU profiles; available faults | P0 before M4 | Part 2 gate and T01–T09 scoped results |
+| HTTP/2 TLS and gRPC unary/server streaming, deadline/cancellation under load | First correct M4 slice | P100-G; separate protocol distributions, body/status/trailer checks and streaming interference |
+| Policy overhead and retry/failure-path cost | First correct M5 slice | Disabled / each policy / combined runs, retry amplification, rejection and recovery accounting |
+| JWT hot-cache/rotation; local token-bucket throughput; secure-channel costs | First correct M6 slice | P-POLICY with equivalent features or clearly separate overhead panel; refresh stampede and TLS/auth proofs |
+| Insight and trace/log cost; telemetry-sink failure | Basic insight in P0; M7 completion | T07 with fixed 1% tracing, bounded labels/queues, counted drops and collector outage |
+
+Every row is part of the transferred campaign. An unimplemented row is blocked by its listed milestone, not deferred to the first M8 measurement. Repeat the affected baseline after each material feature/optimization; compare matched configurations on a controlled runner. D032 still prevents noisy shared-CI latency gates.
+
+## Gate P1 and secure beta/pilot readiness
+
+- [ ] All runnable post-M6 campaign rows and supported-profile T01–T09 have valid results and reviewed target misses/amendments; T07's full tracing extension is explicitly blocked until M7, not marked passed by basic metrics/logging.
+- [ ] M4–M6 semantic and security gates pass; HTTP/gRPC and production TLS/auth/control channels are real, tested capabilities. Loopback M3 mode is not advertised for public production traffic.
+- [ ] Publish a versioned beta binary/image, secure Compose quickstart, example service/client, documented limits, migrations, update and rollback instructions; a fresh uninvolved user completes setup, publish, traffic, rollback and injected-failure diagnosis.
+- [ ] Diagnose route/cluster/outcome/revision, request admission, upstream/auth/timeout/retry causes, control staleness and resource growth through bounded metrics and reason-coded logs/status; complete full traces/UI in M7 before core release.
+- [ ] Separate synthetic report, opt-in real-traffic pilot and external-adoption status. Before claiming external production use, one consenting external project runs a real non-sensitive workload for seven days with published aggregate outcomes and operator feedback. If absent, mark adoption unproven; technical beta publication does not invent users.
+
+The first beta is a smaller product checkpoint, not a waiver of M7–M9 core-release gates. No deployment, external traffic collection, benchmark execution, dependency migration or public comparison publication is performed by this planning revision.
+
 ---
 
 # 8. Milestone 4 — HTTP/2, Connect, gRPC, trailers, streaming
@@ -504,6 +598,7 @@ Add only protocol-specific handling required to preserve semantics. Keep applica
 [ ] no unbounded stream buffering
 [ ] shutdown active stream behavior documented/tested
 [ ] protocol error mapper produces valid HTTP vs gRPC responses
+[ ] P1 HTTP/2/gRPC baseline and supported-protocol T01–T06 evidence recorded before optimization
 ```
 
 ---
@@ -566,6 +661,7 @@ Implement:
 [ ] breaker deterministic tests GREEN
 [ ] Toxiproxy latency/reset cases GREEN where needed
 [ ] race/leak GREEN
+[ ] P1 per-policy and retry/failure-path baseline with CPU, memory, latency and amplification recorded
 ```
 
 ---
@@ -632,6 +728,7 @@ If distributed limiter is included, add Redis Testcontainers + failure-mode test
 [ ] no secrets in captured logs/traces test fixtures
 [ ] SSRF/destination validation tests GREEN for configured URLs
 [ ] security review no unresolved blocker
+[ ] P1 JWT/cache-refresh, limiter and secure-channel baselines recorded
 ```
 
 ---
@@ -689,11 +786,11 @@ Implement:
 
 ---
 
-# 12. Milestone 8 — Failure campaign, load, performance, resource hardening
+# 12. Milestone 8 — Extended failure/soak, performance regression, resource hardening
 
 ## Objective
 
-Attack the system rather than adding features.
+Attack the supported product and validate sustained behavior against the existing P0/P1 baselines rather than introducing its first performance measurement.
 
 ## Required campaign
 
@@ -733,7 +830,7 @@ resource cleanup evidence
 
 ## Performance campaign
 
-Publish reproducible results for:
+The complete initial baseline campaign now belongs to P0/P1 above. Re-run it under the final feature set, extended faults and soak for regression, including:
 
 - direct vs Gatehouse HTTP overhead;
 - gRPC unary overhead;
@@ -746,6 +843,8 @@ Publish reproducible results for:
 
 Capture CPU/heap/allocation/goroutine profiles for representative load.
 
+Compare against the frozen workload and matched baseline environment in `Gatehouse_PRODUCT_BENCHMARKS.md`. Publish observed production/pilot traffic separately from generated load. Failed targets remain visible and require a recorded decision; no aggregate leaderboard score hides failed reliability or resource constraints.
+
 ## Gate M8
 
 ```text
@@ -754,6 +853,7 @@ Capture CPU/heap/allocation/goroutine profiles for representative load.
 [ ] 30-60 minute soak has bounded goroutines/heap after warmup
 [ ] config churn resources stabilize
 [ ] benchmark report committed
+[ ] entire P0/P1 baseline campaign complete and final supported-profile T01–T09 regression report reviewed
 [ ] at least one measured optimization with before/after evidence
 [ ] failed optimization/negative result documented
 ```
@@ -808,6 +908,8 @@ Exact targets may differ, but one documented sequence must reproduce the system.
 [ ] config schema/version documented
 [ ] operations + security + failure-mode docs current
 [ ] benchmark environment recorded
+[ ] public comparison graphics generated from versioned raw results, with units, feature parity, uncertainty and full deployment costs
+[ ] secure beta/pilot onboarding and external-adoption status documented honestly
 [ ] release smoke test GREEN
 ```
 
@@ -834,11 +936,14 @@ Gatehouse core ends here. New features require a new milestone/ADR.
 | R3D | M3 | request sees split config | in-flight revision retention |
 | R3E | M3 | CP outage breaks traffic | LKG serves disconnected |
 | R3F | M3 | editor race overwrites | optimistic conflict |
+| RP0-H | P0 | apparent efficiency from unfair load or excluded dependencies | equivalent config, driver/upstream calibration, correct outcomes, data-plane and whole-stack measurements |
+| RP0-C | P0 | reload/memory objective assumed from microbenchmark | 1k-route external activation, selector stress, contention and retained-resource profiles |
+| RP1 | P1 | new protocol/policy silently consumes performance budget | matched per-feature baselines and supported-profile T01–T09 evidence |
 | R4A-E | M4 | protocol semantics incomplete | real HTTP2/gRPC/Connect tests |
 | R5A-G | M5 | resilience unbounded/unsafe | timeout/retry/budget/breaker/admission tests |
 | R6A-E | M6 | security policy incorrect | JWT/JWKS/rate/mTLS tests |
 | R7A-C | M7 | system not operable | trace/cardinality/UI tests |
-| R8 | M8 | failure/perf unknown | fault + soak + benchmark evidence |
+| R8 | M8 | sustained faults or feature growth invalidate earlier budgets | fault + soak + regression against P0/P1 baseline evidence |
 | R9 | M9 | release not reproducible | clean build + compatibility matrix |
 
 ---

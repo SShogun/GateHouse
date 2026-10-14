@@ -448,6 +448,12 @@ CI should run with deterministic seeded backend fixtures; avoid dependence on pu
 
 # 15. Performance and load tests
 
+The canonical [product and benchmark contract](Gatehouse_PRODUCT_BENCHMARKS.md) defines workload profiles, T01–T09, comparison eligibility, offered-load accounting, repetitions/uncertainty, public evidence and total deployment cost. The full initial campaign belongs to P0/P1; its original P0-before-M4 schedule is deferred under D052 so functional M4 work may proceed first. M8 repeats it under extended faults/soak. No competitive baseline or external adoption is evidenced by the existing microbenchmarks.
+
+The [competitor execution plan](Gatehouse_COMPETITOR_BENCHMARK_PLAN.md) defines the next reference-first campaign, including C1 vs C100 scope, native default/tuned reloads, metric formulas and bounded run budgets. Its paths/commands are planned work, not a currently implemented load harness. After execution, preserve actual-unit raw results and derive a separate numeric GateHouse budget panel before any achieved GateHouse comparison.
+
+The [target scorecard](assets/gatehouse-benchmark-targets.png) is generated from [planning data](assets/gatehouse-benchmark-targets.json), with every measured result pending. Use `render_benchmark_targets.py` with Python/Pillow to regenerate its SVG and PNG; this is a documentation renderer, not a load runner or existing `make benchmark` implementation. Numerical targets are hypotheses until the controlled campaign runs. Measured public comparisons must be generated from separately archived result datasets.
+
 Use a dedicated load tool (`k6`, `vegeta`, `ghz`, or a small Go harness) based on protocol.
 
 Workloads:
@@ -842,3 +848,35 @@ After these follow-ups, pinned Go `1.26.9` `make verify` passed again with Postg
 ## M3 exact-head hosted CI
 
 GitHub Actions run [#25](https://github.com/SShogun/GateHouse/actions/runs/38424816123) completed successfully for `codex/m3-control-plane` at exact head `67c46cb7819d6c90a28c285453eb23f51e4eae75` on 2026-10-13. All six jobs passed: contracts, security, race, unit, static, and PostgreSQL integration. This closes the exact-head hosted CI gate.
+
+## M3 newcomer showcase verification — 2026-10-14
+
+The README now links a repository-owned `Gatehouse_M3_DEMO.md` and `examples/m3/publish-blue.json` / `publish-green.json`. A local verification used a normal fresh clone of committed source `b0b6df77bf62e59012a4d0307d1154c816e32fd8`, with the new uncommitted JSON examples copied into it. Pinned Go 1.26.9 built both executables. The runner exercised the documented service topology and mutation sequence using those binaries, grpcurl 1.9.3 and a separate disposable PostgreSQL 18.6 UTF-8 cluster on port 15433. No existing database or running user demo was modified.
+
+Observed outcomes: initial readiness 503; blue revision 1 then green revision 2 without data-plane restart; persisted instance ACK state; revision history and changed-cluster diff; `InvalidArgument` for invalid schema; `Aborted` for a stale expected parent; unchanged active state after rejection; rollback creating revision 3 and restoring blue; continued requests and readiness while management was disconnected/stale; durable revision and instance recovery after control-plane restart. All waits were bounded by observable outcomes. The control plane's live-stream shutdown reached its documented 10-second deadline and exited 1; the walkthrough discloses this behavior. Final cleanup stopped owned verification processes and PostgreSQL and confirmed all five verification ports closed.
+
+The first verification harness incorrectly treated a successful empty instance-list response as not ready and timed out; its cleanup completed. Correcting that readiness predicate allowed the complete sequence to pass. This was a harness defect, not a GateHouse behavioral RED. Evidence/logs were retained locally under `/tmp/gatehouse-m3-docproof-kpogg28l/`; these temporary artifacts are not hosted CI or permanent public evidence.
+
+JSON syntax, local documentation/image paths and `git diff --check` passed. This documentation/example change does not alter production Go code; the full `make verify` suite was not rerun for it. At verification time it was uncommitted/unpublished and had no exact-head hosted CI; the earlier M3 hosted result does not certify these documentation changes. D052 defers benchmark execution; this walkthrough is functional evidence, not a load benchmark or a production-release gate.
+
+## Post-M3 CI correction — 2026-10-14
+
+The subsequent showcase push at `df153c6d0db7ea49a3161c1dc762f7d65b15a89f` failed contracts and PostgreSQL integration in [GitHub Actions run 38570470491](https://github.com/SShogun/GateHouse/actions/runs/38570470491). These failures are separate from the historical M3 green run above. The correction below was uncommitted at local verification time; the user subsequently approved committing and pushing it to update PR #10. Successful checks on its resulting head remain the hosted acceptance gate.
+
+**Finding 1 — first-branch push baseline.** The event had no pull-request base and an all-zero previous head. The old selector rejected it with `No protobuf compatibility baseline is available for this event.` An assertion-level RED of the shell event fixture reported `FAIL: first branch push did not select a compatibility baseline`. The selector now resolves the fetched repository default branch for that case, preserves pull-request-base precedence and previous-head comparisons, and fails closed on invalid or unavailable references. All ten event cases passed GREEN through `make ci-baseline-test`; the target runs in contracts CI and full verification. D053 records the contract.
+
+**Finding 2 — crash before ACK persistence.** The restart proof waited for local activation, then killed the control plane before its ACK was necessarily persisted. The failed durable row retained identity/build/heartbeat but had no acknowledged revision/hash. A stream interceptor now holds the first ACK until an Admin instance-list read completes. With that deterministic gate and the old pre-crash ordering, the regression failed its metadata assertion (2.76 seconds), using the reported shuffle seed `1791983866929471256`. The correction waits for connected status and matching boot, build, revision and hash through `ListInstances` before crashing; the same seeded focused test passed (2.708 seconds). Post-restart assertions also check build/hash preservation. The gate uses channel/context synchronization and bounded outcome polling, with no fixed synchronization sleeps. No production Go code changed; this corrects the proof's precondition rather than imposing an activation/persistence barrier on the product.
+
+Focused command, with disposable-database variables set:
+
+```sh
+GOTOOLCHAIN=go1.26.9 go test ./cmd/gatehouse-control \
+  -run '^TestControlPlaneRestartKeepsDataPlaneRequestAndRecoversRevision$' \
+  -count=1 -shuffle=1791983866929471256 -v
+```
+
+**Final local gate.** Pinned Go 1.26.9 `make verify` exited 0 against the complete correction, with `GATEHOUSE_TEST_DB_CONFIRM=gatehouse_test` and a disposable PostgreSQL 18.6 UTF-8 `gatehouse_test` database; hosted integration uses PostgreSQL 16. A normal verification clone under `/tmp/gatehouse-ci-fix.pZMTzN/repo` was based on `df153c6`; every tracked source file and both new scripts matched the delivery worktree by SHA-256 before this evidence update. This avoids the previously recorded local Go worktree VCS-discovery limitation without disabling VCS stamping. An initial verification attempt stopped because the temporary clone lacked the local `main` reference used by Buf; creating it from fetched `origin/main` repaired that fixture prerequisite, then the complete gate passed. That infrastructure stop is not a behavioral RED.
+
+The final gate covered formatting, vet, Staticcheck 0.7.0, the ten baseline cases, Buf 1.73.0 lint/breaking compatibility and both compatibility fixtures, deterministic generated output, module verification, the full shuffled PostgreSQL-enabled suite, the full PostgreSQL-enabled race suite, and govulncheck 1.8.0 (`No vulnerabilities found`). The restart package passed in the full suite (2.728 seconds) and race suite (3.823 seconds). One bounded independent review found no implementation blocker; its question about a product-side consistency barrier was resolved by the test-only scope and RED/GREEN evidence. Existing outage, publication recovery and in-flight request assertions remain intact. `.empryo/` is preserved and excluded from delivery.
+
+**Delivery gate:** publish the approved correction and record successful hosted checks for that exact head. Local GREEN and the historical M3 result do not close this gate. The user chose to keep and update PR #10.

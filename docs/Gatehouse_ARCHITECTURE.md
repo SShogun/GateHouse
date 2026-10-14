@@ -4,13 +4,17 @@
 **Product UI:** TypeScript + React (Vite SPA by default)  
 **Primary datastore:** PostgreSQL, control plane only  
 **Scope:** Programmable HTTP / Connect / gRPC gateway with a small control plane, versioned dynamic configuration, policy enforcement, observability, and an operator-focused UI  
-**Design goal:** Deep networking, contracts, failure handling, concurrency, auth, backpressure, and service-operations proof without cloning Envoy
+**Design goal:** A shippable gateway for small HTTP/gRPC service deployments with safe dynamic configuration, predictable resource use, and revision-aware operational insight
 
 ---
 
 ## 1. Purpose
 
-Gatehouse is an educational-but-serious Layer-7 gateway whose data plane accepts HTTP-family traffic, selects a route, applies bounded policy, forwards to an upstream pool, propagates cancellation/deadlines, and emits useful operational telemetry. A separate control plane owns configuration, validation, revision history, and rollout state.
+Gatehouse is a Layer-7 gateway for developers and small platform teams running roughly 5–20 HTTP/gRPC services on VMs or Docker Compose. Its data plane selects a route, applies bounded policy, forwards to an upstream pool, propagates cancellation/deadlines, and emits operational telemetry. A separate control plane owns configuration, validation, revision history, and rollout state.
+
+The product objective is adoption in other projects through a documented resource envelope, safe configuration changes and useful failure insight. The canonical [product and benchmark contract](Gatehouse_PRODUCT_BENCHMARKS.md) defines workloads, initial targets, comparison methodology and release gates. The 25% lower data-plane memory / 90% reference-capacity objective is an unmeasured hypothesis, not an achieved market advantage. Count control-plane and PostgreSQL cost before claiming deployment efficiency.
+
+**Implemented boundary:** M3 provides the HTTP data plane, durable configuration/Admin API, bidirectional configuration stream, activation/status and recovery behavior. HTTP/2/gRPC/Connect application-protocol acceptance is M4; resilience policies, production security and the graphical operator console remain M5–M7. Benchmark execution is deferred under D052. The [README milestone showcases](../README.md#milestone-showcases) maps each milestone to demonstrable behavior, and the [M3 walkthrough](Gatehouse_M3_DEMO.md) runs the current backend from a clone.
 
 The project must visibly prove this control path:
 
@@ -19,8 +23,9 @@ operator change
     -> control-plane validation
     -> immutable config revision
     -> versioned config stream
-    -> data-plane compile + ACK/NACK
-    -> atomic activation
+    -> data-plane validation + compile
+    -> atomic activation, or rejection retaining last-known-good
+    -> ACK/NACK reporting the outcome
     -> request matched against that exact revision
     -> policy + upstream selection
     -> proxied request / streaming response
@@ -31,7 +36,7 @@ The core claim is:
 
 > A Go gateway can safely apply dynamic configuration while serving concurrent HTTP/Connect/gRPC traffic, preserve cancellation and streaming behavior, limit retry amplification and resource growth, enforce policy, and remain operable under realistic partial failure.
 
-This repository is successful only if that claim is demonstrated through executable tests, fault injection, race/leak checks, protocol-level integration, and reproducible load evidence.
+This repository is successful only if that claim is demonstrated through executable tests, fault injection, race/leak checks, protocol-level integration, reproducible load evidence, and a secure deployment workflow usable by another developer. Synthetic results and real external traffic remain distinct evidence.
 
 ---
 
@@ -54,7 +59,7 @@ Gatehouse contains two runtime roles and one UI:
 │                                   │                                         │
 │                              PostgreSQL                                     │
 └───────────────────────────────────┬─────────────────────────────────────────┘
-                                    │ versioned server-streaming config
+                                    │ bidirectional config stream
                                     │ + ACK/NACK / heartbeat
                                     ▼
 ┌─────────────────────────────────────────────────────────────────────────────┐
@@ -111,7 +116,7 @@ Gatehouse should eventually support:
 - a TypeScript operator UI;
 - deterministic CI and deliberate failure campaigns.
 
-### 3.2 Explicit non-goals for the first serious release
+### 3.2 Explicit non-goals for the first product release
 
 Do not add these unless a current acceptance criterion requires them:
 
@@ -467,7 +472,7 @@ Why:
 - easier rollback;
 - fewer partial-order bugs;
 - easier compatibility testing;
-- config volume is small enough for an educational gateway.
+- configuration has a bounded small-deployment workload; P0 must validate full-snapshot compile/activation budgets against the 1,000-route profile.
 
 Deltas are post-V1 and require measured evidence that full snapshots are a bottleneck.
 
@@ -1463,6 +1468,12 @@ Every campaign case must define expected client behavior, expected state retenti
 
 Gatehouse performance work must report workload and environment, not marketing adjectives.
 
+The entire initial campaign belongs to P0/P1 rather than first appearing in M8; its original before/alongside-M4–M6 schedule is deferred under D052. Functional M4 work can proceed while the measurement gates remain open. M8 repeats the campaign for regression, extended faults and soak. [The product contract](Gatehouse_PRODUCT_BENCHMARKS.md) owns T01–T09, the comparison profiles, evidence rules and the current-source architecture review. Every unavailable capability remains explicitly blocked until implemented.
+
+Retain immutable snapshots, the database-free request path, streaming and cluster reuse. Profile the request acquire/release mutex, quadratic route ambiguity validation, per-endpoint connection pools and retained old revisions before choosing optimizations. Evaluate the cost of PostgreSQL and both process roles for the small-deployment envelope. Do not replace the store or proxy engine without a separate ADR and equivalent correctness/recovery evidence.
+
+Bring bounded route/cluster/outcome metrics, revision status and reason-coded diagnostics forward into P0/P1. Keep dynamic revision IDs in status/logs/traces rather than unbounded metric labels. Full tracing, telemetry-sink outage behavior and the operator UI remain M7 work; secure production modes remain M6 gates.
+
 Benchmarks:
 
 1. pure route match benchmark by route count;
@@ -1595,7 +1606,7 @@ Full commands, flake policy, and CI stages live in `TESTING_CI.md`.
 
 ## 40. Dependency policy
 
-Prefer standard library and narrow, mature dependencies.
+Select dependencies for product correctness, measurable performance, security, operational footprint and maintenance cost (D048, which supersedes D037). Prefer standard library and narrow, maintained libraries where they meet those contracts. Learning value is not a reason to reject useful reuse.
 
 Expected categories:
 
@@ -1612,7 +1623,7 @@ small JWT/OIDC library or go-oidc when needed
 
 Do not import:
 
-- a complete existing gateway/proxy that implements the core learning problem;
+- a replacement gateway/proxy engine without an ADR, protocol/ownership tests, footprint comparison and migration plan;
 - an Envoy control plane;
 - a generic plugin framework;
 - a service-mesh framework;
@@ -1622,7 +1633,8 @@ Every production dependency should answer:
 
 ```text
 What capability does it own?
-Why is stdlib/our code not appropriate?
+What are the stdlib/library/custom-code alternatives and their product tradeoffs?
+What transitive footprint and license obligations does it add?
 What is its security/maintenance surface?
 How is it tested during upgrade?
 ```

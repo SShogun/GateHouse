@@ -1,0 +1,88 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1720" height="960" viewBox="0 0 1720 960" role="img" aria-labelledby="title desc">
+<title id="title">GateHouse benchmark targets, not measured results</title>
+<desc id="desc">Six provisional goals; all GateHouse, Caddy, Traefik and Go proxy measurements remain pending. No performance ranking.</desc>
+<rect x="0" y="0" width="1720" height="960" fill="#ffffff"/>
+<text x="38" y="71.25999999999999" font-family="Liberation Sans, Arial, sans-serif" font-size="43" fill="#172642" font-weight="700">GateHouse / benchmark targets</text>
+<text x="38" y="117.86" font-family="Liberation Sans, Arial, sans-serif" font-size="23" fill="#62728c" font-weight="400">A small gateway with a measurable resource envelope and useful failure insight.</text>
+<rect x="1395" y="34" width="287" height="43" fill="#eef1ff"/>
+<text x="1538" y="61.76" font-family="Liberation Sans, Arial, sans-serif" font-size="18" fill="#4354a2" font-weight="700" text-anchor="middle">TARGETS · UNMEASURED</text>
+<text x="38" y="181.12" font-family="Liberation Mono, monospace" font-size="16" fill="#62728c" font-weight="700">INITIAL PRODUCT GOALS</text>
+<text x="1250" y="180.3" font-family="Liberation Mono, monospace" font-size="15" fill="#62728c" font-weight="400">PROFILE-SCOPED · NO OVERALL SCORE</text>
+<rect x="38" y="212" width="1644" height="84" fill="#ffffff" stroke="#dce3f0"/>
+<text x="60" y="248.94" font-family="Liberation Sans, Arial, sans-serif" font-size="17" fill="#62728c" font-weight="700">GATEWAY / STATUS</text>
+<rect x="362" y="212" width="220" height="84" fill="#ffffff" stroke="#dce3f0"/>
+<text x="472.0" y="248.94" font-family="Liberation Sans, Arial, sans-serif" font-size="17" fill="#62728c" font-weight="700" text-anchor="middle">CAPACITY / vCPU</text>
+<text x="472.0" y="276.12" font-family="Liberation Sans, Arial, sans-serif" font-size="16" fill="#62728c" font-weight="400" text-anchor="middle">higher is better</text>
+<rect x="582" y="212" width="220" height="84" fill="#ffffff" stroke="#dce3f0"/>
+<text x="692.0" y="248.94" font-family="Liberation Sans, Arial, sans-serif" font-size="17" fill="#62728c" font-weight="700" text-anchor="middle">DATA-PLANE RSS</text>
+<text x="692.0" y="276.12" font-family="Liberation Sans, Arial, sans-serif" font-size="16" fill="#62728c" font-weight="400" text-anchor="middle">lower is better</text>
+<rect x="802" y="212" width="220" height="84" fill="#ffffff" stroke="#dce3f0"/>
+<text x="912.0" y="248.94" font-family="Liberation Sans, Arial, sans-serif" font-size="17" fill="#62728c" font-weight="700" text-anchor="middle">p99 DELTA</text>
+<text x="912.0" y="276.12" font-family="Liberation Sans, Arial, sans-serif" font-size="16" fill="#62728c" font-weight="400" text-anchor="middle">vs direct upstream</text>
+<rect x="1022" y="212" width="220" height="84" fill="#ffffff" stroke="#dce3f0"/>
+<text x="1132.0" y="248.94" font-family="Liberation Sans, Arial, sans-serif" font-size="17" fill="#62728c" font-weight="700" text-anchor="middle">STREAM GOODPUT</text>
+<text x="1132.0" y="276.12" font-family="Liberation Sans, Arial, sans-serif" font-size="16" fill="#62728c" font-weight="400" text-anchor="middle">vs direct upstream</text>
+<rect x="1242" y="212" width="220" height="84" fill="#ffffff" stroke="#dce3f0"/>
+<text x="1352.0" y="248.94" font-family="Liberation Sans, Arial, sans-serif" font-size="17" fill="#62728c" font-weight="700" text-anchor="middle">ACTIVATION p95</text>
+<text x="1352.0" y="276.12" font-family="Liberation Sans, Arial, sans-serif" font-size="16" fill="#62728c" font-weight="400" text-anchor="middle">1,000-route profile</text>
+<rect x="1462" y="212" width="220" height="84" fill="#ffffff" stroke="#dce3f0"/>
+<text x="1572.0" y="248.94" font-family="Liberation Sans, Arial, sans-serif" font-size="17" fill="#62728c" font-weight="700" text-anchor="middle">OUTAGE SUCCESS</text>
+<text x="1572.0" y="276.12" font-family="Liberation Sans, Arial, sans-serif" font-size="16" fill="#62728c" font-weight="400" text-anchor="middle">warm data plane</text>
+<rect x="38" y="296" width="1644" height="82" fill="#eef1ff" stroke="#dce3f0"/>
+<text x="60" y="334.5" font-family="Liberation Sans, Arial, sans-serif" font-size="25" fill="#172642" font-weight="700">GateHouse target</text>
+<text x="60" y="359.84" font-family="Liberation Mono, monospace" font-size="12" fill="#62728c" font-weight="400">PROVISIONAL · NOT MEASURED</text>
+<rect x="362" y="296" width="220" height="82" fill="#e9edff" stroke="#dce3f0"/>
+<text x="472.0" y="341.22" font-family="Liberation Mono, monospace" font-size="21" fill="#172642" font-weight="700" text-anchor="middle">≥0.90× best REF</text>
+<rect x="582" y="296" width="220" height="82" fill="#dce3ff" stroke="#dce3f0"/>
+<text x="692.0" y="341.22" font-family="Liberation Mono, monospace" font-size="21" fill="#172642" font-weight="700" text-anchor="middle">≤0.75× lower REF</text>
+<rect x="802" y="296" width="220" height="82" fill="#e9edff" stroke="#dce3f0"/>
+<text x="912.0" y="341.22" font-family="Liberation Mono, monospace" font-size="21" fill="#172642" font-weight="700" text-anchor="middle">≤2 ms</text>
+<rect x="1022" y="296" width="220" height="82" fill="#e9edff" stroke="#dce3f0"/>
+<text x="1132.0" y="341.22" font-family="Liberation Mono, monospace" font-size="21" fill="#172642" font-weight="700" text-anchor="middle">≥0.90× direct</text>
+<rect x="1242" y="296" width="220" height="82" fill="#e9edff" stroke="#dce3f0"/>
+<text x="1352.0" y="341.22" font-family="Liberation Mono, monospace" font-size="21" fill="#172642" font-weight="700" text-anchor="middle">≤250 ms</text>
+<rect x="1462" y="296" width="220" height="82" fill="#e9edff" stroke="#dce3f0"/>
+<text x="1572.0" y="341.22" font-family="Liberation Mono, monospace" font-size="21" fill="#172642" font-weight="700" text-anchor="middle">≥99.9%</text>
+<rect x="38" y="378" width="1644" height="82" fill="#ffffff" stroke="#dce3f0"/>
+<text x="60" y="416.5" font-family="Liberation Sans, Arial, sans-serif" font-size="25" fill="#172642" font-weight="700">GateHouse</text>
+<text x="60" y="441.84" font-family="Liberation Mono, monospace" font-size="12" fill="#62728c" font-weight="400">RESULTS PENDING</text>
+<text x="472.0" y="423.22" font-family="Liberation Mono, monospace" font-size="21" fill="#62728c" font-weight="400" text-anchor="middle">Pending</text>
+<text x="692.0" y="423.22" font-family="Liberation Mono, monospace" font-size="21" fill="#62728c" font-weight="400" text-anchor="middle">Pending</text>
+<text x="912.0" y="423.22" font-family="Liberation Mono, monospace" font-size="21" fill="#62728c" font-weight="400" text-anchor="middle">Pending</text>
+<text x="1132.0" y="423.22" font-family="Liberation Mono, monospace" font-size="21" fill="#62728c" font-weight="400" text-anchor="middle">Pending</text>
+<text x="1352.0" y="423.22" font-family="Liberation Mono, monospace" font-size="21" fill="#62728c" font-weight="400" text-anchor="middle">Pending</text>
+<text x="1572.0" y="423.22" font-family="Liberation Mono, monospace" font-size="21" fill="#62728c" font-weight="400" text-anchor="middle">Pending</text>
+<rect x="38" y="460" width="1644" height="82" fill="#f8faff" stroke="#dce3f0"/>
+<text x="60" y="498.5" font-family="Liberation Sans, Arial, sans-serif" font-size="25" fill="#172642" font-weight="700">Caddy</text>
+<text x="60" y="523.84" font-family="Liberation Mono, monospace" font-size="12" fill="#62728c" font-weight="400">COMPARISON CANDIDATE</text>
+<text x="472.0" y="505.22" font-family="Liberation Mono, monospace" font-size="21" fill="#62728c" font-weight="400" text-anchor="middle">Pending</text>
+<text x="692.0" y="505.22" font-family="Liberation Mono, monospace" font-size="21" fill="#62728c" font-weight="400" text-anchor="middle">Pending</text>
+<text x="912.0" y="505.22" font-family="Liberation Mono, monospace" font-size="21" fill="#62728c" font-weight="400" text-anchor="middle">Pending</text>
+<text x="1132.0" y="505.22" font-family="Liberation Mono, monospace" font-size="21" fill="#62728c" font-weight="400" text-anchor="middle">Pending</text>
+<text x="1352.0" y="505.22" font-family="Liberation Mono, monospace" font-size="21" fill="#62728c" font-weight="400" text-anchor="middle">Pending</text>
+<text x="1572.0" y="505.22" font-family="Liberation Mono, monospace" font-size="21" fill="#62728c" font-weight="400" text-anchor="middle">Pending</text>
+<rect x="38" y="542" width="1644" height="82" fill="#ffffff" stroke="#dce3f0"/>
+<text x="60" y="580.5" font-family="Liberation Sans, Arial, sans-serif" font-size="25" fill="#172642" font-weight="700">Traefik OSS</text>
+<text x="60" y="605.84" font-family="Liberation Mono, monospace" font-size="12" fill="#62728c" font-weight="400">COMPARISON CANDIDATE</text>
+<text x="472.0" y="587.22" font-family="Liberation Mono, monospace" font-size="21" fill="#62728c" font-weight="400" text-anchor="middle">Pending</text>
+<text x="692.0" y="587.22" font-family="Liberation Mono, monospace" font-size="21" fill="#62728c" font-weight="400" text-anchor="middle">Pending</text>
+<text x="912.0" y="587.22" font-family="Liberation Mono, monospace" font-size="21" fill="#62728c" font-weight="400" text-anchor="middle">Pending</text>
+<text x="1132.0" y="587.22" font-family="Liberation Mono, monospace" font-size="21" fill="#62728c" font-weight="400" text-anchor="middle">Pending</text>
+<text x="1352.0" y="587.22" font-family="Liberation Mono, monospace" font-size="21" fill="#62728c" font-weight="400" text-anchor="middle">Pending</text>
+<text x="1572.0" y="587.22" font-family="Liberation Mono, monospace" font-size="21" fill="#62728c" font-weight="400" text-anchor="middle">Pending</text>
+<rect x="38" y="624" width="1644" height="82" fill="#f8faff" stroke="#dce3f0"/>
+<text x="60" y="662.5" font-family="Liberation Sans, Arial, sans-serif" font-size="25" fill="#172642" font-weight="700">Go ReverseProxy</text>
+<text x="60" y="687.84" font-family="Liberation Mono, monospace" font-size="12" fill="#62728c" font-weight="400">MINIMAL CONTROL · NOT A PRODUCT</text>
+<text x="472.0" y="669.22" font-family="Liberation Mono, monospace" font-size="21" fill="#62728c" font-weight="400" text-anchor="middle">Pending</text>
+<text x="692.0" y="669.22" font-family="Liberation Mono, monospace" font-size="21" fill="#62728c" font-weight="400" text-anchor="middle">Pending</text>
+<text x="912.0" y="669.22" font-family="Liberation Mono, monospace" font-size="21" fill="#62728c" font-weight="400" text-anchor="middle">Pending</text>
+<text x="1132.0" y="669.22" font-family="Liberation Mono, monospace" font-size="21" fill="#62728c" font-weight="400" text-anchor="middle">Pending</text>
+<text x="1352.0" y="669.22" font-family="Liberation Mono, monospace" font-size="21" fill="#62728c" font-weight="400" text-anchor="middle">N/A</text>
+<text x="1572.0" y="669.22" font-family="Liberation Mono, monospace" font-size="21" fill="#62728c" font-weight="400" text-anchor="middle">N/A</text>
+<text x="38" y="756.76" font-family="Liberation Sans, Arial, sans-serif" font-size="18" fill="#62728c" font-weight="400">Planning targets, not a leaderboard. Shading highlights the goal row; it does not rank performance.</text>
+<text x="38" y="787.76" font-family="Liberation Sans, Arial, sans-serif" font-size="18" fill="#62728c" font-weight="400">REF = eligible Caddy / Traefik: fastest sustainable capacity or lower peak RSS, at matched feature settings.</text>
+<text x="38" y="818.76" font-family="Liberation Sans, Arial, sans-serif" font-size="18" fill="#62728c" font-weight="400">HTTP P0 first; HTTP/2 + gRPC after M4. Separate protocols / workloads; no unsupported feature gets a zero.</text>
+<text x="38" y="849.76" font-family="Liberation Sans, Arial, sans-serif" font-size="18" fill="#62728c" font-weight="400">Report whole-stack cost including control plane + PostgreSQL (T08); lower proxy RSS is not total deployment savings.</text>
+<text x="38" y="880.76" font-family="Liberation Sans, Arial, sans-serif" font-size="18" fill="#62728c" font-weight="400">All values await controlled measurement. Definitions and evidence rules: docs/Gatehouse_PRODUCT_BENCHMARKS.md.</text>
+<text x="38" y="929.3" font-family="Liberation Mono, monospace" font-size="15" fill="#62728c" font-weight="400">2026-10-14 · Product hypothesis v1</text>
+</svg>
