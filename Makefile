@@ -7,7 +7,7 @@ BUF_BASE_BRANCH ?= main
 BUF_BASE_REF ?=
 GO_FILES = $(shell find . -type f -name '*.go' -not -path './.git/*' -not -path './.omx/*')
 
-.PHONY: fmt fmt-check vet staticcheck lint contracts compatibility-test generate check-generated mod-verify test race security verify
+.PHONY: fmt fmt-check vet staticcheck lint contracts ci-baseline-test compatibility-test generate check-generated mod-verify test race security verify
 
 fmt:
 	gofmt -w $(GO_FILES)
@@ -34,6 +34,9 @@ contracts:
 compatibility-test:
 	./scripts/check-buf-breaking.sh
 
+ci-baseline-test:
+	bash ./scripts/test-proto-baseline.sh
+
 generate:
 	buf generate
 
@@ -53,4 +56,4 @@ race:
 security:
 	$(GO) run golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION) ./...
 
-verify: fmt-check vet staticcheck contracts compatibility-test check-generated mod-verify test race security
+verify: fmt-check vet staticcheck ci-baseline-test contracts compatibility-test check-generated mod-verify test race security

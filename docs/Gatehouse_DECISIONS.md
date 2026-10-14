@@ -479,3 +479,15 @@ PostgreSQL continues to store the latest reported instance metadata, including i
 **Why:** The user chose to resume gateway implementation after the manual Linux/forwarding exercise rather than spend more development time on benchmark infrastructure.
 
 **Consequences:** Performance targets remain unmeasured hypotheses. Deferred benchmark checkboxes remain open, including the M4 baseline item; functional protocol acceptance can be reported separately, but a full performance-inclusive gate cannot be claimed closed without its evidence. Do not optimize architecture or publish competitive claims based on assumed performance. The existing Debian lab VM was resized to 4 GiB; two additional clones were not created. An automatic setup helper was prepared but not executed because host administrator authentication was unavailable. Credentials are excluded from project records.
+
+---
+
+## D053 — Event-specific protobuf compatibility baselines
+
+**Status (2026-10-14):** Implemented and verified locally; publication and exact-head hosted CI remain pending.
+
+**Decision:** Resolve the compatibility baseline to a fetched commit SHA before running Buf. Pull requests use the fetched target branch; existing-branch pushes use the event's previous head; first-branch pushes with an all-zero previous head use the repository's fetched default branch. A missing or invalid required reference fails the check rather than silently choosing another baseline. Keep full-history checkout and test this event matrix in both CI and `make verify`.
+
+**Why:** GitHub emits an all-zero previous head when a branch is first published. Requiring a previous commit for every push incorrectly rejected that valid event. Comparing with the default branch preserves a compatibility check for new branches without treating absent references as success.
+
+**Consequences:** No local base branch needs to be created, and non-`main` default branches work. Updating an existing branch still checks its prior head, while the pull-request job checks compatibility with the merge target. This does not change protobuf schemas or runtime semantics. Separately, restart-test crash preconditions must observe persisted ACK metadata; local data-plane activation alone cannot prove that the server stored it. D045's process-local connection-status contract remains unchanged.

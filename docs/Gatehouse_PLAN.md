@@ -471,6 +471,15 @@ Do not implement deltas.
 [x] exact-head required remote CI, including security/integration, GREEN (GitHub Actions run [#25](https://github.com/SShogun/GateHouse/actions/runs/38424816123) on `67c46cb7819d6c90a28c285453eb23f51e4eae75`; see `Gatehouse_TESTING_CI.md`)
 ```
 
+### Post-M3 CI correction — 2026-10-14
+
+The historical gate above records its tested SHA. The later documentation/showcase branch exposed two CI findings; PR #10 is not ready to merge until these corrections are published and its exact-head checks pass. See D053 and the follow-up evidence in `Gatehouse_TESTING_CI.md`.
+
+- [x] First-branch push baseline: reproduce the all-zero previous-head failure, select the fetched default branch, and cover normal and rejected event cases.
+- [x] Restart metadata race: deterministically delay the first ACK, reproduce the missing revision assertion, then wait for server-persisted boot/build/revision/hash before crashing. Preserve request continuity, recovery, and metadata assertions.
+- [x] Pinned Go 1.26.9 full `make verify` with disposable PostgreSQL, including race and security checks; bounded independent review has no unresolved blocker.
+- [ ] Approved commit/push and successful exact-head hosted CI for this correction. Previous green M3 checks do not satisfy this item.
+
 ---
 
 # 7a. Early product and baseline campaign — P0 / P1

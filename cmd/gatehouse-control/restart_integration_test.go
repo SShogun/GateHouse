@@ -129,7 +129,18 @@ func TestControlPlaneRestartKeepsDataPlaneRequestAndRecoversRevision(t *testing.
 			_ = control.Wait()
 		}
 	}()
-	connection, err := grpc.NewClient(address, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	// Delay the first ACK until an instance-status read completes. This makes
+	// local activation happen before durable ACK processing without sleeps.
+	ackBlocked, releaseACK := make(chan struct{}), make(chan struct{})
+	var ackBlockedOnce, releaseACKOnce sync.Once
+	connection, err := grpc.NewClient(address, grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithUnaryInterceptor(func(ctx context.Context, method string, request, reply any, connection *grpc.ClientConn, invoke grpc.UnaryInvoker, options ...grpc.CallOption) error {
+			err := invoke(ctx, method, request, reply, connection, options...)
+			if err == nil && method == pb.AdminService_ListInstances_FullMethodName {
+				releaseACKOnce.Do(func() { close(releaseACK) })
+			}
+			return err
+		}))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -163,6 +174,13 @@ func TestControlPlaneRestartKeepsDataPlaneRequestAndRecoversRevision(t *testing.
 			Endpoint: address, InstanceID: "restart-test-dp", BootID: bootID, Build: "integration",
 			Manager: manager, HeartbeatInterval: time.Second, ReconnectMin: 50 * time.Millisecond, ReconnectMax: 100 * time.Millisecond,
 			Logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
+			DialOptions: []grpc.DialOption{grpc.WithStreamInterceptor(func(ctx context.Context, description *grpc.StreamDesc, connection *grpc.ClientConn, method string, create grpc.Streamer, options ...grpc.CallOption) (grpc.ClientStream, error) {
+				stream, err := create(ctx, description, connection, method, options...)
+				if err != nil {
+					return nil, err
+				}
+				return &ackGateClientStream{ClientStream: stream, blocked: ackBlocked, release: releaseACK, once: &ackBlockedOnce}, nil
+			})},
 		})
 		if clientErr != nil {
 			t.Fatal(clientErr)
@@ -188,6 +206,19 @@ func TestControlPlaneRestartKeepsDataPlaneRequestAndRecoversRevision(t *testing.
 	configA := restartCandidate(upstreamA.URL)
 	responseA := publishWithRetry(t, ctx, adminClient, 0, configA)
 	waitUntil(t, ctx, func() bool { return manager.Status().Ready && manager.Status().Revision == responseA.Revision.Revision })
+	waitForSignal(t, ctx, ackBlocked, "initial ACK waiting after local activation")
+	// Activation is client-side; the crash proof requires the control plane
+	// to have processed and persisted that revision's ACK first.
+	waitUntil(t, ctx, func() bool {
+		requestCtx, requestCancel := context.WithTimeout(ctx, 250*time.Millisecond)
+		defer requestCancel()
+		response, listErr := adminClient.ListInstances(requestCtx, &pb.ListInstancesRequest{Limit: 10})
+		if listErr != nil {
+			return false
+		}
+		instance := findInstanceStatus(response.Instances, "restart-test-dp")
+		return instance != nil && instance.Connected && instance.BootId == "boot-restart-test" && instance.Build == "integration" && instance.ActiveRevision == responseA.Revision.Revision && instance.ActiveHash == responseA.Revision.ContentHash
+	})
 
 	requestResult := make(chan *httptest.ResponseRecorder, 1)
 	go func() {
@@ -224,7 +255,7 @@ func TestControlPlaneRestartKeepsDataPlaneRequestAndRecoversRevision(t *testing.
 		instances = response
 		return !response.Instances[0].Connected
 	})
-	if instances.Instances[0].BootId != "boot-restart-test" || instances.Instances[0].ActiveRevision != responseA.Revision.Revision {
+	if instances.Instances[0].BootId != "boot-restart-test" || instances.Instances[0].Build != "integration" || instances.Instances[0].ActiveRevision != responseA.Revision.Revision || instances.Instances[0].ActiveHash != responseA.Revision.ContentHash {
 		t.Fatalf("offline instance metadata was not preserved after control-plane restart: %+v", instances.Instances[0])
 	}
 	cancelClient, clientDone = startDataPlaneClient("boot-reconnected")
@@ -354,6 +385,25 @@ func TestControlPlaneRestartKeepsDataPlaneRequestAndRecoversRevision(t *testing.
 	waitForSignal(t, ctx, clientDone, "final data-plane client shutdown")
 	stopControl(control)
 	control = nil
+}
+
+type ackGateClientStream struct {
+	grpc.ClientStream
+	blocked chan struct{}
+	release <-chan struct{}
+	once    *sync.Once
+}
+
+func (stream *ackGateClientStream) SendMsg(message any) error {
+	if request, ok := message.(*pb.DataPlaneServiceConnectRequest); ok && request.GetAck() != nil {
+		stream.once.Do(func() { close(stream.blocked) })
+		select {
+		case <-stream.release:
+		case <-stream.Context().Done():
+			return stream.Context().Err()
+		}
+	}
+	return stream.ClientStream.SendMsg(message)
 }
 
 func registerDataPlaneStream(t *testing.T, ctx context.Context, client pb.DataPlaneServiceClient, instanceID, bootID string, activeRevision int64, activeHash string) grpc.BidiStreamingClient[pb.DataPlaneServiceConnectRequest, pb.DataPlaneServiceConnectResponse] {
