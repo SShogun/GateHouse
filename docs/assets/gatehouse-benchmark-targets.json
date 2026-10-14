@@ -1,0 +1,29 @@
+{
+  "status": "unmeasured_targets",
+  "date": "2026-10-14",
+  "title": "GateHouse / benchmark targets",
+  "subtitle": "A small gateway with a measurable resource envelope and useful failure insight.",
+  "columns": [
+    ["GATEWAY / STATUS", ""],
+    ["CAPACITY / vCPU", "higher is better"],
+    ["DATA-PLANE RSS", "lower is better"],
+    ["p99 DELTA", "vs direct upstream"],
+    ["STREAM GOODPUT", "vs direct upstream"],
+    ["ACTIVATION p95", "1,000-route profile"],
+    ["OUTAGE SUCCESS", "warm data plane"]
+  ],
+  "rows": [
+    {"name": "GateHouse target", "status": "PROVISIONAL · NOT MEASURED", "kind": "target", "cells": ["≥0.90× best REF", "≤0.75× lower REF", "≤2 ms", "≥0.90× direct", "≤250 ms", "≥99.9%"]},
+    {"name": "GateHouse", "status": "RESULTS PENDING", "kind": "measured", "cells": ["Pending", "Pending", "Pending", "Pending", "Pending", "Pending"]},
+    {"name": "Caddy", "status": "COMPARISON CANDIDATE", "kind": "measured", "cells": ["Pending", "Pending", "Pending", "Pending", "Pending", "Pending"]},
+    {"name": "Traefik OSS", "status": "COMPARISON CANDIDATE", "kind": "measured", "cells": ["Pending", "Pending", "Pending", "Pending", "Pending", "Pending"]},
+    {"name": "Go ReverseProxy", "status": "MINIMAL CONTROL · NOT A PRODUCT", "kind": "control", "cells": ["Pending", "Pending", "Pending", "Pending", "N/A", "N/A"]}
+  ],
+  "notes": [
+    "Planning targets, not a leaderboard. Shading highlights the goal row; it does not rank performance.",
+    "REF = eligible Caddy / Traefik: fastest sustainable capacity or lower peak RSS, at matched feature settings.",
+    "HTTP P0 first; HTTP/2 + gRPC after M4. Separate protocols / workloads; no unsupported feature gets a zero.",
+    "Report whole-stack cost including control plane + PostgreSQL (T08); lower proxy RSS is not total deployment savings.",
+    "All values await controlled measurement. Definitions and evidence rules: docs/Gatehouse_PRODUCT_BENCHMARKS.md."
+  ]
+}

@@ -448,6 +448,12 @@ CI should run with deterministic seeded backend fixtures; avoid dependence on pu
 
 # 15. Performance and load tests
 
+The canonical [product and benchmark contract](Gatehouse_PRODUCT_BENCHMARKS.md) defines workload profiles, T01–T09, comparison eligibility, offered-load accounting, repetitions/uncertainty, public evidence and total deployment cost. The full initial campaign belongs to P0/P1; its original P0-before-M4 schedule is deferred under D052 so functional M4 work may proceed first. M8 repeats it under extended faults/soak. No competitive baseline or external adoption is evidenced by the existing microbenchmarks.
+
+The [competitor execution plan](Gatehouse_COMPETITOR_BENCHMARK_PLAN.md) defines the next reference-first campaign, including C1 vs C100 scope, native default/tuned reloads, metric formulas and bounded run budgets. Its paths/commands are planned work, not a currently implemented load harness. After execution, preserve actual-unit raw results and derive a separate numeric GateHouse budget panel before any achieved GateHouse comparison.
+
+The [target scorecard](assets/gatehouse-benchmark-targets.png) is generated from [planning data](assets/gatehouse-benchmark-targets.json), with every measured result pending. Use `render_benchmark_targets.py` with Python/Pillow to regenerate its SVG and PNG; this is a documentation renderer, not a load runner or existing `make benchmark` implementation. Numerical targets are hypotheses until the controlled campaign runs. Measured public comparisons must be generated from separately archived result datasets.
+
 Use a dedicated load tool (`k6`, `vegeta`, `ghz`, or a small Go harness) based on protocol.
 
 Workloads:
@@ -842,3 +848,13 @@ After these follow-ups, pinned Go `1.26.9` `make verify` passed again with Postg
 ## M3 exact-head hosted CI
 
 GitHub Actions run [#25](https://github.com/SShogun/GateHouse/actions/runs/38424816123) completed successfully for `codex/m3-control-plane` at exact head `67c46cb7819d6c90a28c285453eb23f51e4eae75` on 2026-10-13. All six jobs passed: contracts, security, race, unit, static, and PostgreSQL integration. This closes the exact-head hosted CI gate.
+
+## M3 newcomer showcase verification — 2026-10-14
+
+The README now links a repository-owned `Gatehouse_M3_DEMO.md` and `examples/m3/publish-blue.json` / `publish-green.json`. A local verification used a normal fresh clone of committed source `b0b6df77bf62e59012a4d0307d1154c816e32fd8`, with the new uncommitted JSON examples copied into it. Pinned Go 1.26.9 built both executables. The runner exercised the documented service topology and mutation sequence using those binaries, grpcurl 1.9.3 and a separate disposable PostgreSQL 18.6 UTF-8 cluster on port 15433. No existing database or running user demo was modified.
+
+Observed outcomes: initial readiness 503; blue revision 1 then green revision 2 without data-plane restart; persisted instance ACK state; revision history and changed-cluster diff; `InvalidArgument` for invalid schema; `Aborted` for a stale expected parent; unchanged active state after rejection; rollback creating revision 3 and restoring blue; continued requests and readiness while management was disconnected/stale; durable revision and instance recovery after control-plane restart. All waits were bounded by observable outcomes. The control plane's live-stream shutdown reached its documented 10-second deadline and exited 1; the walkthrough discloses this behavior. Final cleanup stopped owned verification processes and PostgreSQL and confirmed all five verification ports closed.
+
+The first verification harness incorrectly treated a successful empty instance-list response as not ready and timed out; its cleanup completed. Correcting that readiness predicate allowed the complete sequence to pass. This was a harness defect, not a GateHouse behavioral RED. Evidence/logs were retained locally under `/tmp/gatehouse-m3-docproof-kpogg28l/`; these temporary artifacts are not hosted CI or permanent public evidence.
+
+JSON syntax, local documentation/image paths and `git diff --check` passed. This documentation/example change does not alter production Go code; the full `make verify` suite was not rerun for it. At verification time it was uncommitted/unpublished and had no exact-head hosted CI; the earlier M3 hosted result does not certify these documentation changes. D052 defers benchmark execution; this walkthrough is functional evidence, not a load benchmark or a production-release gate.

@@ -322,6 +322,8 @@ Repeated edits without new evidence are not debugging.
 
 ## D037 — Stable dependency budget
 
+**Status:** Superseded by D048 on 2026-10-14. The original rationale is retained below as history; learning value no longer determines dependency selection.
+
 Prefer stdlib and narrow mature libraries. Adding a complete proxy/gateway framework that owns the project’s central learning surface is rejected.
 
 Test-only dependencies may be richer than runtime dependencies when they improve failure realism.
@@ -397,3 +399,83 @@ PostgreSQL continues to store the latest reported instance metadata, including i
 **Scope:** One control-plane process owns this view. Global status across multiple control-plane processes would require a separate shared lease/ownership design. This decision adds no protobuf field, migration, startup reset, or lease worker.
 
 **Evidence:** The session registry projects status after the bounded database page is read; service regressions cover orphaned rows, boot mismatch, failed disconnect persistence, and replacement ownership. A disposable-PostgreSQL process test covers restart and database outage/recovery. See `Gatehouse_TESTING_CI.md`, “M3 connected-status audit correction.”
+
+---
+
+## D046 — A small deployable gateway is the product objective
+
+**Decision (2026-10-14):** GateHouse targets developers and small teams running 5–20 HTTP/gRPC services on VMs or Compose, needing dynamic configuration, safe rollback, bounded resources and operational insight. Learning remains a consequence of building it, not the release acceptance criterion.
+
+**Why:** Correctness proofs alone do not establish usefulness or a reason to adopt another gateway. The intended advantage is a measured resource envelope plus revision-aware failure insight. Dynamic routing and metrics are prerequisites already present in established products.
+
+**Contract:** `Gatehouse_PRODUCT_BENCHMARKS.md` defines the workloads and provisional targets, including 25% lower data-plane peak RSS with at least 90% of the fastest eligible reference capacity. These are unmeasured goals. Whole-stack cost, including PostgreSQL, is mandatory reporting; a smaller data plane cannot justify an unmeasured total-deployment saving claim.
+
+**Consequences:** Retain the split plane, last-known-good and ownership contracts. Require a secure quickstart, real-protocol load/fault evidence and an explicit beta/adoption distinction. One control-plane process remains the D045 scope. No “production-ready” or faster-than-competitor claim follows from this ADR alone.
+
+---
+
+## D047 — Baselines precede architectural optimization
+
+**Scheduling status:** The requirement to execute P0 before starting M4 is superseded by D052. Measurement requirements before performance claims or architecture optimization remain in effect.
+
+**Decision (2026-10-14):** Transfer the entire initial performance campaign from M8 to P0/P1. P0, between M3 and M4, measures currently runnable HTTP, streaming, route scaling, compile/apply, failure and footprint behavior. P1 adds HTTP/2/gRPC and policy/JWT/limiter/retry baselines with their first functional M4–M6 slices. M8 owns extended fault/soak and regression evidence.
+
+**Why:** Waiting until all features exist leaves costly hot-path and resource decisions unmeasured. Measuring unimplemented capabilities is equally misleading.
+
+**Consequences:** Every original campaign metric has an owner and dependency in the execution plan. Unavailable rows remain blocked, never passed by a different protocol. Basic bounded operational insight moves forward; full M7 observability/UI remains required. D032's controlled-runner rule is retained.
+
+---
+
+## D048 — Dependencies are selected for product outcomes
+
+**Decision (2026-10-14):** Supersedes D037. Prefer the simplest maintained component that satisfies protocol, security, performance and operational contracts. Reuse mature Go libraries when they reduce defect/maintenance burden or improve measured outcomes. Do not reject a component merely because it solves a learning exercise.
+
+**Acceptance:** Record capability, alternatives, transitive footprint, license, security/maintenance history, upgrade/pinning strategy and integration tests. Hot-path substitutions need matched before/after measurements and protocol regressions. A neutral result does not justify complexity on performance grounds; a separate demonstrated correctness or maintenance benefit may justify it explicitly.
+
+**Boundary:** This approves a selection policy, not an immediate dependency or framework migration. Replacing the proxy engine, durable store, config ownership, or protocol implementation still requires its own ADR, contract tests and migration/rollback plan. Preserve D001–D007, D041, D043 and D045 unless explicitly superseded. No broad plugin/service-mesh framework is added without a workload need.
+
+---
+
+## D049 — Benchmark graphics separate targets from results
+
+**Decision (2026-10-14):** Public benchmark comparisons must identify exact versions, workload, environment, correctness outcomes, uncertainty and reproducible artifacts. Proposed targets, synthetic measurements and external pilot observations are separate evidence classes.
+
+**Why:** An attractive table with predicted competitor numbers is not comparative evidence. Gateway throughput, memory, latency and failure behavior cannot be collapsed into an unsupported “overall” score.
+
+**Consequences:** The target graphic is labeled unmeasured and leaves every result cell pending. Measured graphics are generated from versioned raw data. Publish resource boundaries and whole-stack cost, failed runs, exclusions and loss cases. Unsupported features are N/A, not zero. Target revisions require rationale and retain the previous value; public claims wait for the corresponding reproducible gate.
+
+---
+
+## D050 — Reference-first benchmarks preserve native scope and failure boundaries
+
+**Decision (2026-10-14):** Measure pinned Caddy and Traefik product configurations first, with a minimal Go ReverseProxy in a separate one-route transport-control track. Follow `Gatehouse_COMPETITOR_BENCHMARK_PLAN.md` for category formulas, configuration parity, defaults/tuning, run budgets and data provenance. Derive absolute GateHouse goals from measured results; do not treat those calculations as implementation forecasts.
+
+**Why:** A forwarding library does not implement gateway health/reload/telemetry contracts. Stock monolithic proxies also have different control dependencies from GateHouse's split process/database model. Mixing tracks or inventing a common outage can manufacture an advantage.
+
+**Consequences:** Keep default and tuned provider behavior separate, including Traefik throttling. Missing native capabilities are N/A; missing counters are UNAVAILABLE; supported behavior that fails is FAIL. Never label an admin-listener block as a crashed separate control plane, or simulate an unused PostgreSQL dependency for a peer. GateHouse measurements use Q_all; if adding GateHouse changes common load, references must be rerun. Whole-deployment accounting and original independent safety/latency budgets remain binding under D046–D049.
+
+---
+
+## D051 — Hands-on benchmark environment and learning sequence
+
+**Status (2026-10-14):** Manual learning approach approved by the user. Exact VM topology and any paid resource choice remain open; this decision is not permission to purchase cloud resources or modify existing servers.
+
+**Decision:** Proceed one user-operated step at a time, beginning with a read-only inventory of the user's current machine. The user manually creates and inspects virtual machines and runs services; each command and configuration choice is explained before it is used. Provisioning automation is excluded from this learning sequence unless the user later changes this preference. Start with one disposable Linux VM for learning, then determine whether hardware supports separate driver, gateway and upstream roles. The controlled target remains the competitor plan's two-vCPU Linux amd64 gateway with a 2 GiB parent deployment cgroup ceiling, subject to resource headroom and measurement validity.
+
+**Why:** The user prioritizes understanding the system over setup speed. Manually inspecting OS, CPU, memory, networking, process lifetime and resource accounting makes later benchmark decisions understandable. A VM still does not prove physical isolation; local learning measurements stay labeled diagnostic.
+
+**Consequences:** Preserve D050's native scope and failure distinctions. Do not select a provider or price until local capacity and need are understood. The three-role campaign, calibration, full run matrix, cost ceiling and publication remain later gates. Do not skip a learning step until the user can explain its output.
+
+**First action completed:** User ran the read-only host inventory from E0. Linux x86_64, VT-x and `/dev/kvm` are available; next inspect which KVM management tools are already installed. Exact host specifications remain in the conversation, not this project file. D032 and D046–D050 remain unchanged.
+
+---
+
+## D052 — Defer benchmark execution and resume protocol implementation
+
+**Status (2026-10-14):** Accepted at the user's explicit request to postpone benchmarking and return to project implementation.
+
+**Decision:** Defer the P0/P1 competitor campaign and further benchmark VM provisioning. Proceed with M4 protocol correctness without requiring P0 execution first. This supersedes D047's scheduling prerequisite and pauses D051's environment sequence; retain the benchmark plans, workload contracts, targets and evidence requirements for later execution.
+
+**Why:** The user chose to resume gateway implementation after the manual Linux/forwarding exercise rather than spend more development time on benchmark infrastructure.
+
+**Consequences:** Performance targets remain unmeasured hypotheses. Deferred benchmark checkboxes remain open, including the M4 baseline item; functional protocol acceptance can be reported separately, but a full performance-inclusive gate cannot be claimed closed without its evidence. Do not optimize architecture or publish competitive claims based on assumed performance. The existing Debian lab VM was resized to 4 GiB; two additional clones were not created. An automatic setup helper was prepared but not executed because host administrator authentication was unavailable. Credentials are excluded from project records.

@@ -1,0 +1,21 @@
+{
+  "expectedParentRevision": "1",
+  "actor": "demo-operator",
+  "reason": "Switch demo requests to green",
+  "config": {
+    "schemaVersion": 1,
+    "listener": { "address": "127.0.0.1:18080" },
+    "routes": [
+      { "id": "all", "path": "/", "pathType": "PATH_TYPE_PREFIX", "clusterId": "demo" }
+    ],
+    "clusters": [
+      {
+        "id": "demo",
+        "policy": "SELECTION_POLICY_ROUND_ROBIN",
+        "endpoints": [
+          { "id": "green", "address": "http://127.0.0.1:18082", "weight": 1 }
+        ]
+      }
+    ]
+  }
+}
